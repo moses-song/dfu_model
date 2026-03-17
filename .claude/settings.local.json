@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import sys, json; nb=json.load\\(sys.stdin\\); [print\\(c[''''source'''']\\) for c in nb[''''cells''''][:5] if c[''''cell_type'''']==''''code'''']\")",
+      "Bash(python3 -c \"import json; nb=json.load\\(open\\(''c:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/LangGraph_test.ipynb'', encoding=''utf-8''\\)\\); [print\\(c[''source'']\\) for c in nb[''cells''][:5] if c[''cell_type'']==''code'']\")",
+      "Bash(python -c \"print\\(''hello''\\)\")",
+      "Bash(python -c \":*)"
+    ]
+  }
+}
