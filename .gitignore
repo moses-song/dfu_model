@@ -1,3 +1,4 @@
-
-parameters/DINOv3_pth/
-parameters/Mask2Formers_pth/
+__pycache__/
+*.pyc
+logs/
+parameters/
