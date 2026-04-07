@@ -310,12 +310,6 @@ def setup(args):
     if not hasattr(cfg.MODEL.DINO_V3, "WEIGHTS_PATH"):
         cfg.MODEL.DINO_V3.WEIGHTS_PATH = ""
     cfg.set_new_allowed(False)
-    cfg.set_new_allowed(True)
-    if not hasattr(cfg.MODEL, "BACKBONE"):
-        cfg.MODEL.BACKBONE = CN()
-    if not hasattr(cfg.MODEL.BACKBONE, "OUT_FEATURES"):
-        cfg.MODEL.BACKBONE.OUT_FEATURES = ["res2", "res3", "res4", "res5"]
-    cfg.set_new_allowed(False)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
     cfg.freeze()
