@@ -299,6 +299,11 @@ def setup(args):
     add_deeplab_config(cfg)
     add_maskformer2_config(cfg)
     cfg.set_new_allowed(True)
+    if not hasattr(cfg, "SOLVER"):
+        cfg.SOLVER = CN()
+    if not hasattr(cfg.SOLVER, "DDP_FIND_UNUSED_PARAMETERS"):
+        cfg.SOLVER.DDP_FIND_UNUSED_PARAMETERS = True
+    cfg.set_new_allowed(True)
     if not hasattr(cfg.MODEL, "BACKBONE"):
         cfg.MODEL.BACKBONE = CN()
     if not hasattr(cfg.MODEL.BACKBONE, "OUT_FEATURES"):
