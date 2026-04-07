@@ -341,6 +341,15 @@ def main(args):
         return res
 
     trainer = Trainer(cfg)
+    
+    ############ Freeze backbone for head-only training.########
+    for name, param in trainer.model.backbone.named_parameters():
+        param.requires_grad = False
+        if comm.is_main_process():
+            print(f"[Backbone frozen] {name}")
+
+    trainer.optimizer = trainer.build_optimizer(cfg, trainer.model)
+    ############################################################
     trainer.resume_or_load(resume=args.resume)
     return trainer.train()
 

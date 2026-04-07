@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 logs/
 parameters/
+Model_training/train_results/
