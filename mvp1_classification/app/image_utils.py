@@ -12,6 +12,10 @@ def image_to_base64(img: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def image_to_data_url(img: Image.Image) -> str:
+    return f"data:image/png;base64,{image_to_base64(img)}"
+
+
 def blend_images(base: Image.Image, overlay: Image.Image, alpha: float) -> Image.Image:
     base_rgb = base.convert("RGB")
     overlay_rgb = overlay.convert("RGB")

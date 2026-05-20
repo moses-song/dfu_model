@@ -1,0 +1,31 @@
+﻿version: 1
+
+agents:
+  orchestrator:
+    default_model: gpt-5
+    can_override: true
+    responsibilities: [global_state, conflict_resolution, decision_logging]
+  planning:
+    default_model: gpt-5
+    can_override: true
+    responsibilities: [scope, roadmap, acceptance_criteria, risks]
+  model:
+    default_model: gpt-5-mini
+    can_override: true
+    responsibilities: [model_pipeline, preprocessing, postprocessing]
+  feature_service:
+    default_model: gpt-5-mini
+    can_override: true
+    responsibilities: [api_design, service_architecture]
+  verification:
+    default_model: gpt-5-mini
+    can_override: true
+    responsibilities: [test_plan, validation, regression]
+  deployment:
+    default_model: gpt-5-mini
+    can_override: true
+    responsibilities: [packaging, rollout]
+  frontend:
+    default_model: gpt-5-mini
+    can_override: true
+    responsibilities: [ui_ux, integration]

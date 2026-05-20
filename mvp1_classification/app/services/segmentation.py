@@ -31,6 +31,38 @@ class BaseSegmenter:
         raise NotImplementedError
 
 
+class DemoSegmenter(BaseSegmenter):
+    name = "demo"
+
+    def predict(self, image: Image.Image) -> Tuple[np.ndarray, float, bool]:
+        rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+        red = rgb[:, :, 0]
+        green = rgb[:, :, 1]
+        blue = rgb[:, :, 2]
+        brightness = rgb.mean(axis=2)
+        redness = red - (green + blue) / 2.0
+
+        red_cutoff = max(18.0, float(np.percentile(redness, 82)))
+        dark_cutoff = float(np.percentile(brightness, 45))
+        mask = (redness >= red_cutoff) & (brightness <= dark_cutoff + 45.0)
+
+        mask = self._smooth(mask)
+        area_ratio = float(mask.mean())
+        wound_present = area_ratio >= SEG_AREA_THRESHOLD
+        return mask.astype(np.uint8), area_ratio, wound_present
+
+    def _smooth(self, mask: np.ndarray) -> np.ndarray:
+        if mask.size == 0:
+            return mask
+
+        padded = np.pad(mask.astype(np.uint8), 1, mode="constant")
+        neighbors = np.zeros(mask.shape, dtype=np.uint8)
+        for y in range(3):
+            for x in range(3):
+                neighbors += padded[y : y + mask.shape[0], x : x + mask.shape[1]]
+        return neighbors >= 5
+
+
 class SwinMask2FormerSegmenter(BaseSegmenter):
     name = "swin_m2f"
 
@@ -282,6 +314,7 @@ class CustomHeadSegmenter(BaseSegmenter):
 
 _SEGMENTERS: Dict[str, BaseSegmenter] = {}
 _BACKEND_FACTORIES = {
+    "demo": DemoSegmenter,
     "dino_m2f": DinoMask2FormerSegmenter,
     "swin_m2f": SwinMask2FormerSegmenter,
     "detectron2": SwinMask2FormerSegmenter,

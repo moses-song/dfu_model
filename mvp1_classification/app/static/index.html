@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DFU Mobile MVP</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">DFU Mobile MVP</p>
+          <h1>당뇨발 상처 분석</h1>
+        </div>
+        <span id="apiStatus" class="status">API 확인 중</span>
+      </header>
+
+      <section class="workspace">
+        <form id="analyzeForm" class="panel">
+          <label class="uploadBox" for="fileInput">
+            <input
+              id="fileInput"
+              name="file"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              required
+            />
+            <span class="uploadIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="img">
+                <path d="M4 7a2 2 0 0 1 2-2h2l1.4-1.8A2 2 0 0 1 11 2.5h2a2 2 0 0 1 1.6.7L16 5h2a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" />
+                <circle cx="12" cy="12.5" r="3.5" />
+              </svg>
+            </span>
+            <span>
+              <strong id="fileLabel">이미지 선택</strong>
+              <small>휴대폰 촬영 또는 갤러리 이미지를 업로드하세요.</small>
+            </span>
+          </label>
+
+          <div class="previewFrame">
+            <img id="previewImage" alt="업로드 이미지 미리보기" />
+            <span id="emptyPreview">Preview</span>
+          </div>
+
+          <div class="fieldGrid">
+            <label>
+              <span>Glucose</span>
+              <input name="glucose" inputmode="decimal" placeholder="mg/dL" />
+            </label>
+            <label>
+              <span>HbA1c</span>
+              <input name="hba1c" inputmode="decimal" placeholder="%" />
+            </label>
+          </div>
+          <label class="memoField">
+            <span>메모</span>
+            <textarea name="memo" rows="3" placeholder="통증, 감염 의심, 촬영 상황"></textarea>
+          </label>
+
+          <button id="submitButton" class="primaryButton" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            분석 시작
+          </button>
+        </form>
+
+        <section class="results" aria-live="polite">
+          <div class="summary">
+            <h2>분석 결과</h2>
+            <p id="nextAction">이미지를 업로드하면 분석 결과가 표시됩니다.</p>
+          </div>
+
+          <div class="imageGrid">
+            <figure>
+              <img id="originalImage" alt="원본 이미지" />
+              <figcaption>Original</figcaption>
+            </figure>
+            <figure>
+              <img id="overlayImage" alt="상처 영역 오버레이 이미지" />
+              <figcaption>Overlay</figcaption>
+            </figure>
+            <figure>
+              <img id="maskImage" alt="상처 이진 마스크 이미지" />
+              <figcaption>Mask</figcaption>
+            </figure>
+          </div>
+
+          <div id="stageList" class="stageList"></div>
+          <p id="disclaimer" class="disclaimer"></p>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

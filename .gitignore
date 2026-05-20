@@ -3,3 +3,4 @@ __pycache__/
 logs/
 parameters/
 Model_training/train_results/
+mvp1_classification/*.log

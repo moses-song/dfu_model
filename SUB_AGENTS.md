@@ -41,3 +41,16 @@ Purpose: define roles and responsibilities for a multi-agent workflow.
 - Keep API response schemas stable across agents.
 - Document assumptions and changes in decision logs.
 - Prefer small, reversible changes with clear ownership.
+
+## Orchestration
+1. Orchestrator selects agent models using `orchestration/agent_registry.yaml`.
+2. Planning runs first for scope, acceptance criteria, and risks.
+3. Model, Feature/Service, and Frontend run in parallel when inputs are stable.
+4. Verification runs after implementation artifacts exist or when a test plan is required.
+5. Deployment runs after Verification signals readiness or when packaging is requested.
+6. Orchestrator merges outputs using role ownership rules and records decisions.
+
+## Model Assignment
+1. Default models are defined per agent in `orchestration/agent_registry.yaml`.
+2. Per-task overrides can be requested in the task header using `Models: Planning=..., Model=...`.
+3. Overrides are recorded in `orchestration/decision_log.md`.
