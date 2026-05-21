@@ -22,6 +22,7 @@ from ..settings import (
     DINO_M2F_CONFIG_PATH,
     DINO_M2F_WEIGHTS_PATH,
 )
+from .dinov3_loader import load_dinov3_vitb16_backbone
 
   
 class BaseSegmenter:
@@ -126,9 +127,7 @@ def _register_dino_backbone() -> None:
         return
 
     import torch
-    from torch import nn
     from torch.nn import functional as F
-    import timm
     from detectron2.modeling import BACKBONE_REGISTRY, Backbone
     from detectron2.layers import ShapeSpec
 
@@ -136,21 +135,14 @@ def _register_dino_backbone() -> None:
     class DinoV3Backbone(Backbone):
         def __init__(self, cfg, input_shape):
             super().__init__()
-            model_name = cfg.MODEL.DINO_V3.MODEL_NAME
             weights_path = cfg.MODEL.DINO_V3.WEIGHTS_PATH
-            pretrained = False if weights_path else True
-            self.model = timm.create_model(
-                model_name,
-                pretrained=pretrained,
-                num_classes=0,
-                global_pool="",
-            )
-            if weights_path:
-                self._load_weights(weights_path)
+            self.model = load_dinov3_vitb16_backbone(weights_path)
 
-            self.num_prefix_tokens = getattr(self.model, "num_prefix_tokens", 1)
+            self.num_prefix_tokens = getattr(self.model, "n_storage_tokens", 0) + 1
             self.patch_size = self._infer_patch_size()
-            self.embed_dim = getattr(self.model, "num_features", None) or self.model.embed_dim
+            self.embed_dim = getattr(self.model, "embed_dim", None) or getattr(
+                self.model, "num_features", None
+            )
 
             self.out_features = cfg.MODEL.BACKBONE.OUT_FEATURES
 
@@ -163,28 +155,14 @@ def _register_dino_backbone() -> None:
                 return int(patch_size[0])
             return int(patch_size)
 
-        def _load_weights(self, path: str) -> None:
-            state = torch.load(path, map_location="cpu")
-            if isinstance(state, dict):
-                if "state_dict" in state:
-                    state = state["state_dict"]
-                elif "model" in state:
-                    state = state["model"]
-
-            if isinstance(state, dict):
-                cleaned = {}
-                for key, value in state.items():
-                    cleaned[key.replace("module.", "")] = value
-                state = cleaned
-
-            self.model.load_state_dict(state, strict=False)
-
         def forward(self, x):
             tokens = self.model.forward_features(x)
-            if isinstance(tokens, (list, tuple)):
+            if isinstance(tokens, dict):
+                tokens = tokens["x_norm_patchtokens"]
+            elif isinstance(tokens, (list, tuple)):
                 tokens = tokens[-1]
-
-            tokens = tokens[:, self.num_prefix_tokens :, :]
+                if isinstance(tokens, dict):
+                    tokens = tokens["x_norm_patchtokens"]
             b, n, c = tokens.shape
             h = x.shape[-2] // self.patch_size
             w = x.shape[-1] // self.patch_size
@@ -345,3 +323,26 @@ def render_overlay(image: Image.Image, mask: np.ndarray) -> Image.Image:
 def render_mask(mask: np.ndarray) -> Image.Image:
     mask_img = (mask > 0).astype(np.uint8) * 255
     return Image.fromarray(mask_img, mode="L")
+
+
+def mask_to_bbox(mask: np.ndarray) -> Optional[dict]:
+    coords = np.argwhere(mask > 0)
+    if coords.size == 0:
+        return None
+
+    y_min, x_min = coords.min(axis=0)
+    y_max, x_max = coords.max(axis=0)
+    width = int(x_max - x_min + 1)
+    height = int(y_max - y_min + 1)
+    center_x = float(x_min + width / 2.0)
+    center_y = float(y_min + height / 2.0)
+    return {
+        "x_min": int(x_min),
+        "y_min": int(y_min),
+        "x_max": int(x_max),
+        "y_max": int(y_max),
+        "width": width,
+        "height": height,
+        "center_x": round(center_x, 2),
+        "center_y": round(center_y, 2),
+    }

@@ -5,40 +5,32 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 from PIL import Image
-import timm
 
 from ..image_utils import blend_images
 from ..settings import (
-    DINO_MODEL_NAME,
     DINO_WEIGHTS_PATH,
     DINO_IMAGE_SIZE,
     DINO_DEVICE,
     PCA_BLEND,
     PCA_BRIGHTNESS,
 )
+from .dinov3_loader import load_dinov3_vitb16_backbone
 
 
 class DinoPcaVisualizer:
+    backend_name = "dinov3_vitb16"
+
     def __init__(self) -> None:
-        pretrained = False if DINO_WEIGHTS_PATH else True
-        self.model = timm.create_model(
-            DINO_MODEL_NAME,
-            pretrained=pretrained,
-            num_classes=0,
-            global_pool="",
-        )
-        if DINO_WEIGHTS_PATH:
-            self._load_weights(DINO_WEIGHTS_PATH)
+        self.model = load_dinov3_vitb16_backbone(DINO_WEIGHTS_PATH)
 
         self.model.eval()
         self.device = DINO_DEVICE
         self.model.to(self.device)
 
-        data_cfg = timm.data.resolve_model_data_config(self.model)
-        self.mean = torch.tensor(data_cfg.get("mean", (0.485, 0.456, 0.406)))
-        self.std = torch.tensor(data_cfg.get("std", (0.229, 0.224, 0.225)))
+        self.mean = torch.tensor((0.485, 0.456, 0.406))
+        self.std = torch.tensor((0.229, 0.224, 0.225))
 
-        self.num_prefix_tokens = getattr(self.model, "num_prefix_tokens", 1)
+        self.num_prefix_tokens = getattr(self.model, "n_storage_tokens", 0) + 1
         self.patch_size = self._infer_patch_size()
 
     def _infer_patch_size(self) -> int:
@@ -49,22 +41,6 @@ class DinoPcaVisualizer:
         if isinstance(patch_size, (tuple, list)):
             return int(patch_size[0])
         return int(patch_size)
-
-    def _load_weights(self, path: str) -> None:
-        state = torch.load(path, map_location="cpu")
-        if isinstance(state, dict):
-            if "state_dict" in state:
-                state = state["state_dict"]
-            elif "model" in state:
-                state = state["model"]
-
-        if isinstance(state, dict):
-            cleaned = {}
-            for key, value in state.items():
-                cleaned[key.replace("module.", "")] = value
-            state = cleaned
-
-        self.model.load_state_dict(state, strict=False)
 
     def _preprocess(self, image: Image.Image) -> torch.Tensor:
         img = image.convert("RGB").resize((DINO_IMAGE_SIZE, DINO_IMAGE_SIZE))
@@ -81,10 +57,13 @@ class DinoPcaVisualizer:
 
         x = self._preprocess(image).to(self.device)
         tokens = self.model.forward_features(x)
-        if isinstance(tokens, (list, tuple)):
+        if isinstance(tokens, dict):
+            tokens = tokens["x_norm_patchtokens"]
+        elif isinstance(tokens, (list, tuple)):
             tokens = tokens[-1]
+            if isinstance(tokens, dict):
+                tokens = tokens["x_norm_patchtokens"]
 
-        tokens = tokens[:, self.num_prefix_tokens :, :]
         if tokens.shape[0] != 1:
             raise RuntimeError("expected single-image batch")
 
@@ -94,6 +73,11 @@ class DinoPcaVisualizer:
             raise RuntimeError("token count mismatch for visualization")
 
         return tokens[0], h, w
+
+    @torch.no_grad()
+    def extract_feature_matrix(self, image: Image.Image) -> Tuple[np.ndarray, Tuple[int, int], int]:
+        patch_tokens, h, w = self._get_patch_tokens(image)
+        return patch_tokens.detach().cpu().numpy(), (h, w), self.patch_size
 
     @torch.no_grad()
     def visualize(self, image: Image.Image) -> Tuple[Image.Image, Image.Image]:
@@ -160,11 +144,71 @@ class DinoPcaVisualizer:
         return rgb.byte().cpu().numpy()
 
 
+class ImagePatchFallbackVisualizer:
+    backend_name = "image_patch_fallback"
+
+    def __init__(self) -> None:
+        self.patch = 16
+
+    def _patch_matrix(self, image: Image.Image) -> Tuple[np.ndarray, int, int]:
+        img = image.convert("RGB").resize((DINO_IMAGE_SIZE, DINO_IMAGE_SIZE))
+        arr = np.asarray(img, dtype=np.float32) / 255.0
+        h = DINO_IMAGE_SIZE // self.patch
+        w = DINO_IMAGE_SIZE // self.patch
+        arr = arr.reshape(h, self.patch, w, self.patch, 3).mean(axis=(1, 3))
+        return arr.reshape(h * w, 3), h, w
+
+    def extract_feature_matrix(self, image: Image.Image) -> Tuple[np.ndarray, Tuple[int, int], int]:
+        matrix, h, w = self._patch_matrix(image)
+        return matrix, (h, w), self.patch
+
+    def visualize(self, image: Image.Image) -> Tuple[Image.Image, Image.Image]:
+        matrix, h, w = self._patch_matrix(image)
+        matrix = matrix - matrix.mean(axis=0, keepdims=True)
+        _, _, vh = np.linalg.svd(matrix, full_matrices=False)
+        comps = matrix @ vh[:3].T
+        intensity = np.linalg.norm(comps, axis=-1).reshape(h, w)
+        intensity = intensity - intensity.min()
+        intensity = intensity / (intensity.max() + 1e-6)
+        rgb = np.stack(
+            [
+                intensity,
+                intensity * 0.95,
+                np.zeros_like(intensity),
+            ],
+            axis=-1,
+        )
+        pca_img = Image.fromarray((rgb * 255.0).astype(np.uint8), mode="RGB").resize(
+            image.size, Image.BILINEAR
+        )
+        overlay = blend_images(image, pca_img, PCA_BLEND)
+        return pca_img, overlay
+
+    def cosine_similarity(self, image: Image.Image) -> Tuple[Image.Image, Image.Image]:
+        matrix, h, w = self._patch_matrix(image)
+        norms = np.linalg.norm(matrix, axis=-1, keepdims=True) + 1e-6
+        matrix = matrix / norms
+        center_idx = (h // 2) * w + (w // 2)
+        sim = matrix @ matrix[center_idx]
+        sim = sim.reshape(h, w)
+        sim = sim - sim.min()
+        sim = sim / (sim.max() + 1e-6)
+        rgb = np.stack([sim * 0.25, sim * 0.7, sim], axis=-1)
+        cosine_img = Image.fromarray((rgb * 255.0).astype(np.uint8), mode="RGB").resize(
+            image.size, Image.BILINEAR
+        )
+        overlay = blend_images(image, cosine_img, PCA_BLEND)
+        return cosine_img, overlay
+
+
 _pca: Optional[DinoPcaVisualizer] = None
 
 
-def get_pca_visualizer() -> DinoPcaVisualizer:
+def get_pca_visualizer():
     global _pca
     if _pca is None:
-        _pca = DinoPcaVisualizer()
+        try:
+            _pca = DinoPcaVisualizer()
+        except Exception:
+            _pca = ImagePatchFallbackVisualizer()
     return _pca

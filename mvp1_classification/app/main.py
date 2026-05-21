@@ -9,7 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from .model import get_classifier
-from .schemas import AnalysisResult, ClassificationResult
+from .schemas import AnalysisResult, ClassificationResult, ModelCatalogResponse, ModelRunResult
+from .services.model_catalog import build_model_catalog, get_model_spec
+from .services.model_runner import run_model
 from .services.pipeline import analyze_image
 from .settings import CORS_ORIGINS, MODEL_LABELS
 
@@ -55,6 +57,11 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/api/models", response_model=ModelCatalogResponse)
+def list_models() -> ModelCatalogResponse:
+    return ModelCatalogResponse(models=build_model_catalog())
+
+
 @app.post("/classify", response_model=ClassificationResult)
 def classify(file: UploadFile = File(...)) -> ClassificationResult:
     image = _read_image(file)
@@ -89,3 +96,20 @@ def analyze(
             "memo": memo or "",
         },
     )
+
+
+@app.post("/api/models/{model_id}/run", response_model=ModelRunResult)
+def run_model_endpoint(
+    model_id: str,
+    file: UploadFile = File(...),
+) -> ModelRunResult:
+    image = _read_image(file)
+    try:
+        get_model_spec(model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        return run_model(model_id, image)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"model run failed: {exc}") from exc

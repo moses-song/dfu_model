@@ -81,6 +81,9 @@ class BaseClassifier:
     def predict(self, image: Image.Image) -> Tuple[int, float]:
         raise NotImplementedError
 
+    def predict_from_features(self, image: Image.Image, feature_context=None) -> Tuple[int, float]:
+        return self.predict(image)
+
     def predict_full(self, image: Image.Image) -> Prediction:
         class_index, score = self.predict(image)
         labels = list(self.task.labels)
@@ -139,6 +142,12 @@ class CustomClassifier(BaseClassifier):
     def predict(self, image: Image.Image) -> Tuple[int, float]:
         return self.impl.predict(image)
 
+    def predict_from_features(self, image: Image.Image, feature_context=None) -> Tuple[int, float]:
+        impl_predict = getattr(self.impl, "predict_from_features", None)
+        if callable(impl_predict):
+            return impl_predict(image, feature_context)
+        return self.impl.predict(image)
+
 
 _CLASSIFIERS: Dict[str, BaseClassifier] = {}
 _BACKEND_FACTORIES = {
@@ -167,3 +176,30 @@ def get_classifier(task: str = "legacy") -> BaseClassifier:
 
 def predict_task(task: str, image: Image.Image) -> Prediction:
     return get_classifier(task).predict_full(image)
+
+
+def predict_task_with_features(task: str, image: Image.Image, feature_context=None) -> Prediction:
+    classifier = get_classifier(task)
+    class_index, score = classifier.predict_from_features(image, feature_context)
+    labels = list(classifier.task.labels)
+    if class_index < 0 or class_index >= len(labels):
+        class_index = 0
+        score = 0.0
+    return Prediction(
+        task=classifier.task.name,
+        class_label=labels[class_index],
+        class_index=class_index,
+        score=float(score),
+        labels=labels,
+        backend=classifier.backend,
+        model_path=classifier.task.model_path,
+        weights_found=bool(classifier.task.model_path)
+        and Path(classifier.task.model_path).exists(),
+        note="shared DINO feature context available to classifier"
+        if feature_context is not None
+        else (
+            "demo classifier; replace backend before clinical use"
+            if classifier.backend == "dummy"
+            else ""
+        ),
+    )
