@@ -42,7 +42,7 @@ flowchart TD
 
 ## 3. 현재 MVP1 웹 서비스
 
-현재 서비스 앱은 `mvp1_classification` 폴더에 있다. FastAPI 서버가 API와 정적 모바일 웹 화면을 함께 제공한다.
+현재 서비스 앱은 `mvp1_classification` 폴더에 있다. FastAPI 서버가 API와 정적 웹 화면을 함께 제공한다. 초기 형태는 단일 `/api/analyze` 파이프라인 중심이었지만, 현재는 모델별 결과를 독립적으로 비교할 수 있는 workbench 형태로 확장되었다.
 
 ### 실행
 ```powershell
@@ -56,23 +56,40 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ### API
 - `GET /`: 모바일 웹 화면 반환
 - `GET /health`: 서버 상태 확인
+- `GET /api/models`: 모델 비교 UI에서 사용할 모델 카탈로그 반환
+- `POST /api/models/{model_id}/run`: 개별 모델 버튼 실행. 모델별 결과, timing/FPS, 좌표, raw output 등을 반환
 - `POST /api/analyze`: 이미지와 선택 임상 입력을 받아 전체 DFU 분석 파이프라인 실행
 - `POST /classify`: 과거 MVP 호환용 단일 classification endpoint
+
+### 현재 웹 화면 동작
+- 업로드한 동일 이미지에 대해 모델 버튼을 각각 눌러 결과를 비교한다.
+- 모델 결과 카드에는 최소한 다음 항목을 포함한다.
+  - 추론 결과: 예) `foot`, `dfu`, `other_injury`, `wound detected`
+  - 추론 시간(ms), FPS
+  - segmentation 기반 bounding box 좌표와 중심 좌표
+  - raw output/debug 값
+  - 평가 지표 슬롯: DICE, F1, Precision, Recall
+- 현재 DICE/F1/Precision/Recall은 단일 추론 모드에서는 ground truth가 없으므로 `N/A`로 반환한다. 실제 수치는 GT 마스크/정답 라벨이 함께 주어지는 평가 경로에서 계산한다.
 
 ## 4. 폴더와 파일 역할
 
 ### 서비스 앱: `mvp1_classification`
-- `app/main.py`: FastAPI 엔트리포인트. 정적 파일, `/health`, `/classify`, `/api/analyze` 라우팅과 업로드 이미지 검증을 담당한다.
-- `app/schemas.py`: API 응답 스키마. 프론트엔드가 의존하는 계약이므로 기존 필드는 유지하고 필요한 필드만 추가한다.
+- `app/main.py`: FastAPI 엔트리포인트. 정적 파일, `/health`, `/classify`, `/api/analyze`, `/api/models`, `/api/models/{model_id}/run` 라우팅과 업로드 이미지 검증을 담당한다.
+- `app/schemas.py`: API 응답 스키마. 기존 pipeline 응답뿐 아니라 model catalog, model run result, timing, detection, eval metric, raw output 계약을 정의한다.
 - `app/settings.py`: 모델 경로, label, backend, threshold, CORS 등 환경변수 기본값을 관리한다.
 - `app/model.py`: 과거 `/classify` 호환용 wrapper. 실제 classifier 호출은 `app/services/classifier.py`로 위임한다.
 - `app/services/pipeline.py`: foot classification, segmentation, DFU classification, Wagner/SINBAD classification 흐름을 제어한다.
-- `app/services/classifier.py`: task별 classifier adapter. `foot`, `dfu`, `wagner`, `sinbad`, `legacy` task를 동일한 인터페이스로 호출한다.
-- `app/services/segmentation.py`: wound segmentation adapter. `demo`, `swin_m2f`, `dino_m2f`, `custom_head` backend를 선택할 수 있다.
+- `app/services/classifier.py`: task별 classifier adapter. `foot`, `dfu`, `wagner`, `sinbad`, `legacy` task를 동일한 인터페이스로 호출하며, 필요한 경우 shared feature context를 넘길 수 있다.
+- `app/services/segmentation.py`: wound segmentation adapter. `demo`, `swin_m2f`, `dino_m2f`, `custom_head` backend를 선택할 수 있고, mask 기반 bounding box 계산도 담당한다.
+- `app/services/pca_focus.py`: DINOv3 backbone patch token을 이용한 PCA/cosine visualization을 담당한다.
+- `app/services/dinov3_loader.py`: 로컬 DINOv3 원본 코드와 backbone `.pth`를 직접 읽어 ViT-B/16 backbone을 생성한다.
+- `app/services/feature_store.py`: 업로드 이미지 해시를 기준으로 DINO feature context를 캐시한다. 모델 비교 버튼 여러 개를 눌러도 공통 feature를 재사용하는 경로다.
+- `app/services/model_catalog.py`: 비교 가능한 모델 목록과 메타데이터를 정의한다.
+- `app/services/model_runner.py`: 모델별 실행 entry. 추론 결과, 시간, FPS, bbox, raw output, artifact, feature cache 상태를 모아 반환한다.
 - `app/image_utils.py`: PIL 이미지를 브라우저에서 표시 가능한 base64 data URL로 변환한다.
-- `app/static/index.html`: 모바일 우선 웹 화면.
-- `app/static/styles.css`: 반응형 UI 스타일.
-- `app/static/app.js`: 이미지 미리보기, `/api/analyze` 호출, 결과 렌더링.
+- `app/static/index.html`: 모델 비교 workbench 화면.
+- `app/static/styles.css`: 비교 카드, artifact grid, detection/eval metric 섹션을 포함한 반응형 UI 스타일.
+- `app/static/app.js`: 이미지 미리보기, 모델 카탈로그 로드, 개별 모델 실행, 결과 비교 카드 렌더링을 담당한다.
 - `requirements.txt`: 로컬 MVP 실행에 필요한 Python 패키지.
 
 ### 학습/실험: `Model_training`
@@ -105,21 +122,35 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 parameters/
   DINOv3_pth/
     dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
-  Mask2Formers_pth/
-  Fine-tuned_pth/
-    wound_dino_m2f/
+  segmentation/
+    fastinst_d3/
+      config.yaml
       model_final.pth
-    wound_segmenter/
+    dino_m2f/
+      config.yaml
       model_final.pth
+  classification/
+    foot/
+      model.pt
+    dfu/
+      model.pt
+    wagner/
+      model.pt
+    sinbad/
+      model.pt
   app_models/
-    foot_classifier.pt
-    dfu_classifier.pt
-    wagner_classifier.pt
-    sinbad_classifier.pt
     legacy_classifier.pt
 ```
 
+현재 backbone PCA와 공통 feature backbone 경로는 아래 파일을 기본 사용한다.
+- `parameters/DINOv3_pth/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth`
+
 기본 경로는 `app/settings.py`에 정의되어 있다. 폴더를 바꾸고 싶으면 `DFU_PARAMETERS_DIR` 또는 task별 환경변수를 사용한다.
+
+관련 핵심 경로:
+- `DINO_WEIGHTS_PATH`: DINOv3 backbone PCA/공통 feature backbone
+- `DINO_M2F_CONFIG_PATH`, `DINO_M2F_WEIGHTS_PATH`: DINOv3 segmentation 계열
+- `FOOT_MODEL_PATH`, `DFU_MODEL_PATH`, `WAGNER_MODEL_PATH`, `SINBAD_MODEL_PATH`: classifier head 계열
 
 ## 6. 모델 교체 방법
 
@@ -184,7 +215,17 @@ cloud 배포 전 결정해야 할 항목:
 
 ## 9. 현재 상태
 
-- `mvp1_classification`은 localhost 웹/API 형태로 실행 가능한 구조다.
-- 학습 weight가 없을 때는 `dummy` classifier와 `demo` segmentation backend로 동작한다.
-- 학습된 파라미터가 준비되면 `parameters/` 아래에 배치하고 환경변수로 backend와 weight path를 바꿔 실제 모델 추론으로 전환한다.
-- 1차 화면은 이미지 업로드, glucose/HbA1c/memo 입력, original/overlay/mask 및 단계별 결과 확인을 지원한다.
+- `mvp1_classification`은 localhost 실행 가능한 API + 모델 비교 웹 화면 구조를 갖춘 상태다.
+- 개별 모델 버튼은 다음 항목을 분리해 비교할 수 있다.
+  - DINOv3 Backbone PCA
+  - DINOv3 segmentation 경로
+  - Foot / Non-foot
+  - DFU / Other injury
+  - Wagner
+  - SINBAD
+- shared feature cache가 도입되어 같은 이미지에 대해 여러 모델 버튼을 눌러도 공통 DINO feature context를 재사용한다.
+- 현재 `feature_backend`는 실제 `dinov3_vitb16`로 동작한다. 즉 image patch fallback이 아니라 로컬 DINOv3 원본 backbone + `dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth` 기반 feature를 사용한다.
+- `dinov3_linear_foot`와 `dinov3_linear_sinbad`는 실행 검증을 마쳤고, 공통 feature backend가 `dinov3_vitb16`로 표기되는 것을 확인했다.
+- segmentation 결과 카드에는 wound detection 여부, area ratio, bbox 좌표, 중심 좌표, timing/FPS가 포함된다.
+- 분류 결과 카드에는 최종 class label, confidence, timing/FPS, feature cache hit/miss, raw output이 포함된다.
+- DICE/F1/Precision/Recall은 현재 inference-only 경로에서는 GT가 없으므로 `N/A`로 남겨두고, 추후 평가용 endpoint 또는 dataset 기반 batch evaluator에서 실제 수치를 계산하도록 설계했다.
