@@ -14,6 +14,44 @@
 
 ## 2. 전체 구조 한눈에 보기
 
+### 입력
+
+- 이미지: 발 전체, 발 일부, 상처 근접 이미지
+- 선택 텍스트: glucose, HbA1c, 메모 등 임상/생활 로그성 데이터
+
+### 추론 흐름
+
+```mermaid
+flowchart TD
+  A["Mobile/Web browser"] --> B["FastAPI POST /api/analyze"]
+  B --> C["이미지 검증 및 PIL RGB 변환"]
+  C --> D["pipeline.py orchestration"]
+  D --> E["1. Foot classification"]
+  D --> F["2. Wound segmentation"]
+  F --> G["original / overlay / binary mask"]
+  E --> H{"발 이미지인가?"}
+  H -->|no| I["재촬영 안내"]
+  H -->|yes| J{"상처가 감지되었는가?"}
+
+  J -->|no| K["상처 미감지 안내"]
+  K --> K1["Normal skin / Grade 0 classification"]
+  K1 --> K2{"분류 결과"}
+  K2 -->|normal skin| K3["Normal skin 안내"]
+  K2 -->|grade 0| K4["Wagner Grade 0 안내"]
+
+  J -->|yes| L["3. DFU classification"]
+  L --> M{"DFU인가?"}
+  M -->|no| N["other injury 분기"]
+  M -->|yes| O["4. Wagner / SINBAD classification"]
+  O --> P["5. 임상 텍스트가 있으면 multimodal/RAG 확장"]
+  P --> Q["AnalysisResult JSON 응답"]
+
+  K3 --> Q
+  K4 --> Q
+```
+
+### 시스템 구조
+
 ```mermaid
 flowchart TD
   U["사용자 브라우저"] --> C["Client: static/index.html + app.js + styles.css"]
