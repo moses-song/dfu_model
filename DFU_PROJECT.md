@@ -24,13 +24,22 @@ flowchart TD
   E --> H{"발 이미지인가?"}
   H -->|no| I["재촬영 안내"]
   H -->|yes| J{"상처가 감지되었는가?"}
+
   J -->|no| K["상처 미감지 안내"]
+  K --> K1["Normal skin / Grade 0 classification"]
+  K1 --> K2{"분류 결과"}
+  K2 -->|normal skin| K3["Normal skin 안내"]
+  K2 -->|grade 0| K4["Wagner Grade 0 안내"]
+
   J -->|yes| L["3. DFU classification"]
   L --> M{"DFU인가?"}
   M -->|no| N["other injury 분기"]
   M -->|yes| O["4. Wagner / SINBAD classification"]
   O --> P["5. 임상 텍스트가 있으면 multimodal/RAG 확장"]
   P --> Q["AnalysisResult JSON 응답"]
+
+  K3 --> Q
+  K4 --> Q
 ```
 
 ### 핵심 기능
