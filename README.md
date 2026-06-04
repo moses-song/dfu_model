@@ -1,240 +1,354 @@
 # DFU Project
 
-## 1. 프로젝트 목표
+## 1. 목적
 
-DFU Project는 당뇨병성 족부궤양(Diabetic Foot Ulcer, DFU) 환자가 휴대폰으로 발 또는 상처 이미지를 촬영/업로드하면, 이미지 기반 AI 분석과 선택적 임상 텍스트 입력을 결합해 상처 상태를 확인하는 모바일 우선 서비스다.
+이 프로젝트는 당뇨병성 족부궤양(Diabetic Foot Ulcer, DFU) 이미지를 입력받아 다음 작업을 수행하는 로컬 MVP를 만드는 것이 목적이다.
 
-현재 1차 목표는 localhost에서 동작하는 웹 형태의 MVP를 완성하는 것이다. 이후 동일한 API/모델 어댑터 구조를 유지한 채 cloud 환경으로 배포할 수 있도록 구성한다.
+- 발 이미지 여부 판별
+- 상처 영역 세그멘테이션
+- DFU 여부 분류
+- Wagner / SINBAD 분류
+- 향후 임상 텍스트 입력을 결합한 멀티모달 확장
 
-## 2. 서비스 아키텍처
+현재 기준 서비스 중심 폴더는 `mvp1_classification` 이다. 이 폴더가 실제 웹앱, API, 모델 실행 어댑터의 진입점이다.
 
-### 입력
-- 이미지: 발 전체, 발 일부, 상처 근접 이미지
-- 선택 텍스트: glucose, HbA1c, 메모 등 임상/생활 로그성 데이터
+## 2. 전체 구조 한눈에 보기
 
-### 추론 흐름
 ```mermaid
 flowchart TD
-  A["Mobile/Web browser"] --> B["FastAPI POST /api/analyze"]
-  B --> C["이미지 검증 및 PIL RGB 변환"]
-  C --> D["pipeline.py orchestration"]
-  D --> E["1. Foot classification"]
-  D --> F["2. Wound segmentation"]
-  F --> G["original / overlay / binary mask"]
-  E --> H{"발 이미지인가?"}
-  H -->|no| I["재촬영 안내"]
-  H -->|yes| J{"상처가 감지되었는가?"}
+  U["사용자 브라우저"] --> C["Client: static/index.html + app.js + styles.css"]
+  C --> S["Web Server + Web App Server: FastAPI app/main.py"]
+  S --> API1["GET /"]
+  S --> API2["GET /health"]
+  S --> API3["GET /api/models"]
+  S --> API4["POST /api/models/{model_id}/run"]
+  S --> API5["POST /api/analyze"]
+  S --> API6["POST /classify"]
 
-  J -->|no| K["상처 미감지 안내"]
-  K --> K1["Normal skin / Grade 0 classification"]
-  K1 --> K2{"분류 결과"}
-  K2 -->|normal skin| K3["Normal skin 안내"]
-  K2 -->|grade 0| K4["Wagner Grade 0 안내"]
+  API4 --> MR["services/model_runner.py"]
+  API5 --> PL["services/pipeline.py"]
+  API6 --> LG["model.py -> services/classifier.py"]
 
-  J -->|yes| L["3. DFU classification"]
-  L --> M{"DFU인가?"}
-  M -->|no| N["other injury 분기"]
-  M -->|yes| O["4. Wagner / SINBAD classification"]
-  O --> P["5. 임상 텍스트가 있으면 multimodal/RAG 확장"]
-  P --> Q["AnalysisResult JSON 응답"]
+  MR --> FS["services/feature_store.py"]
+  MR --> PCA["services/pca_focus.py"]
+  MR --> SEG["services/segmentation.py"]
+  MR --> CLS["services/classifier.py"]
 
-  K3 --> Q
-  K4 --> Q
+  PL --> SEG
+  PL --> CLS
+
+  SEG --> DINO["services/dinov3_loader.py"]
+  PCA --> DINO
+  DINO --> W1["parameters/DINOv3_pth/*.pth"]
+  SEG --> W2["parameters/Fine-tuned_pth/*.pth"]
+  CLS --> W3["parameters/app_models/*.pt"]
+
+  T["Model_training/*"] --> W2
+  R1["dinov3/"] --> DINO
+  R2["Mask2formers/"] --> SEG
+  R3["DINOv3-Mask2Former/"] --> SEG
 ```
 
-### 핵심 기능
-1. Foot classification: 입력 이미지가 발 이미지인지 판단한다.
-2. Wound segmentation: 상처 영역을 segmentation하고 original, overlay, binary mask를 반환한다.
-3. DFU classification: 상처가 DFU인지 other injury인지 판단한다.
-4. Wagner/SINBAD classification: DFU로 판단된 상처의 grade/score를 분류한다.
-5. Multimodal 확장: glucose, HbA1c, 메모 등 텍스트 입력과 이미지 분석 결과를 결합해 grade/score 또는 위험도를 보정한다.
+## 3. 현재 구성 요소
 
-## 3. 현재 MVP1 웹 서비스
+### 3.1 DB
 
-현재 서비스 앱은 `mvp1_classification` 폴더에 있다. FastAPI 서버가 API와 정적 웹 화면을 함께 제공한다. 초기 형태는 단일 `/api/analyze` 파이프라인 중심이었지만, 현재는 모델별 결과를 독립적으로 비교할 수 있는 workbench 형태로 확장되었다.
+현재 별도 DB는 없다.
 
-### 실행
+- RDBMS 없음
+- NoSQL 없음
+- 벡터 DB 없음
+- 세션 저장소 없음
+- 결과 영속 저장 없음
+
+현재 상태 관리는 메모리와 파일 기반이다.
+
+- 업로드 이미지는 요청 단위로만 처리된다.
+- 공통 feature cache는 [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:1) 에서 프로세스 메모리 LRU 형태로 유지된다.
+- 모델 weight는 `parameters/` 폴더에서 파일로 읽는다.
+
+### 3.2 서버
+
+현재 서버는 하나의 FastAPI 프로세스가 두 역할을 동시에 수행한다.
+
+- 웹서버 역할: 정적 HTML/CSS/JS 서빙
+- 웹앱서버 역할: API 라우팅, 이미지 검증, 파이프라인 실행, 모델 실행
+
+실행 진입점:
+
+- [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:1)
+- 실행 명령: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+
+현재 별도 리버스 프록시(Nginx, Apache)나 별도 WAS 계층은 없다.
+
+### 3.3 API
+
+현재 API는 FastAPI 한 곳에 정의되어 있다.
+
+| Method | Path | 역할 | 실행 파일 |
+|---|---|---|---|
+| `GET` | `/` | 메인 웹 화면 반환 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:50) |
+| `GET` | `/health` | 서버 상태 확인 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:55) |
+| `GET` | `/api/models` | 모델 비교용 카탈로그 반환 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:60) |
+| `POST` | `/api/models/{model_id}/run` | 개별 모델 단위 실행 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:101) |
+| `POST` | `/api/analyze` | 전체 DFU 파이프라인 실행 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:82) |
+| `POST` | `/classify` | 구형 단일 분류 호환 API | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:65) |
+
+### 3.4 Client
+
+현재 클라이언트는 서버가 함께 제공하는 정적 웹앱이다.
+
+- 화면 템플릿: [index.html](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/index.html:1)
+- 동작 스크립트: [app.js](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/app.js:1)
+- 스타일: [styles.css](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/styles.css:1)
+
+클라이언트가 하는 일:
+
+- 이미지 파일 선택
+- `/health` 로 서버 상태 확인
+- `/api/models` 로 버튼 목록 로드
+- `/api/models/{model_id}/run` 으로 모델별 비교 실행
+- `/api/analyze` 로 전체 파이프라인 실행
+- 결과 카드, metric, artifact 이미지 렌더링
+
+현재 별도 모바일 앱, React SPA, Next.js 프런트엔드, Electron 클라이언트는 없다.
+
+## 4. 서비스 코드 구조
+
+### 4.1 핵심 앱 폴더
+
+`mvp1_classification/app`
+
+| 파일 | 역할 |
+|---|---|
+| [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:1) | FastAPI 엔트리포인트, 라우팅, 업로드 이미지 검증 |
+| [schemas.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/schemas.py:1) | API 요청/응답 스키마 |
+| [settings.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/settings.py:1) | 모델 경로, backend, threshold, CORS 등 설정 |
+| [model.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/model.py:1) | 구형 `/classify` 호환 래퍼 |
+| [image_utils.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/image_utils.py:1) | PIL 이미지 변환, overlay/base64 유틸 |
+
+### 4.2 서비스 레이어
+
+`mvp1_classification/app/services`
+
+| 파일 | 역할 |
+|---|---|
+| [pipeline.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pipeline.py:1) | 전체 DFU 분석 흐름 제어 |
+| [classifier.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/classifier.py:1) | 분류기 adapter 계층 |
+| [segmentation.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/segmentation.py:1) | 세그멘테이션 adapter 계층 |
+| [model_catalog.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_catalog.py:1) | 비교 가능한 모델 목록 정의 |
+| [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:1) | 모델별 단건 실행과 결과 카드 생성 |
+| [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:1) | 공통 feature cache |
+| [pca_focus.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pca_focus.py:1) | DINOv3 feature 시각화 |
+| [dinov3_loader.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/dinov3_loader.py:1) | 로컬 DINOv3 backbone 로더 |
+
+## 5. 모델 종류와 실행 파일
+
+### 5.1 현재 비교 가능한 모델 목록
+
+현재 모델 카탈로그는 [model_catalog.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_catalog.py:32) 에 정의되어 있다.
+
+| 모델 ID | 종류 | 목적 | 직접 실행되는 파일 | 내부 의존 |
+|---|---|---|---|---|
+| `dinov3_backbone_pca` | 시각화 모델 | DINOv3 patch feature 시각화 | [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:72) | `pca_focus.py`, `feature_store.py`, `dinov3_loader.py` |
+| `dinov3_fastinst_d3_segmentation` | 세그멘테이션 모델 | 상처 영역 mask 생성 | [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:111) | `segmentation.py`, `feature_store.py` |
+| `dinov3_linear_foot` | 분류 모델 | Foot / Non-foot 판별 | [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:190) | `classifier.py`, `feature_store.py` |
+| `dinov3_linear_dfu` | 분류 모델 | DFU / Other injury 판별 | [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:190) | `classifier.py`, `feature_store.py` |
+| `dinov3_linear_wagner` | 분류 모델 | Wagner 등급 분류 | [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:190) | `classifier.py`, `feature_store.py` |
+| `dinov3_linear_sinbad` | 분류 모델 | SINBAD 관련 분류 | [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:190) | `classifier.py`, `feature_store.py` |
+
+### 5.2 모델별 실제 실행 경로
+
+#### A. 전체 파이프라인 실행
+
+엔드포인트:
+
+- `POST /api/analyze`
+
+실행 순서:
+
+1. [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:82) 에서 이미지 입력 수신
+2. [pipeline.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pipeline.py:30) 의 `analyze_image(...)` 호출
+3. [classifier.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/classifier.py:177) 로 `foot` 분류
+4. [segmentation.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/segmentation.py:302) 로 세그멘테이션 backend 선택
+5. 상처가 있으면 `dfu`, `wagner`, `sinbad` 순으로 추가 분류
+6. [schemas.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/schemas.py:1) 형태로 응답 반환
+
+#### B. 개별 모델 비교 실행
+
+엔드포인트:
+
+- `POST /api/models/{model_id}/run`
+
+실행 순서:
+
+1. [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:101) 에서 `model_id` 수신
+2. [model_catalog.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_catalog.py:95) 로 모델 정의 확인
+3. [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:76) 의 `run_model(...)` 실행
+4. 공통 feature가 필요하면 [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:84) 에서 캐시 사용
+5. 모델 종류에 따라 `pca_focus.py`, `segmentation.py`, `classifier.py` 중 하나로 분기
+
+#### C. 구형 단일 분류 실행
+
+엔드포인트:
+
+- `POST /classify`
+
+실행 순서:
+
+1. [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:65) 에서 요청 수신
+2. [model.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/model.py:1) 경유
+3. [classifier.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/classifier.py:150) 의 legacy task 실행
+
+## 6. 모델 backend와 현재 구현 상태
+
+### 6.1 분류기 backend
+
+[classifier.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/classifier.py:150)
+
+| backend | 상태 | 설명 |
+|---|---|---|
+| `dummy` | 구현 완료 | 기본값. 실제 학습 모델 없이 기본 class를 반환 |
+| `custom` | 구현 완료 | 외부 사용자 정의 classifier class를 로드 |
+
+현재 기본 설정:
+
+- [settings.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/settings.py:32) `CLASSIFIER_BACKEND = "dummy"`
+
+즉, 분류 task 구조는 구현되어 있지만 기본 실행은 더미 응답이다. 실제 모델 추론을 하려면 `CUSTOM_CLASSIFIER` 와 task별 모델 경로를 연결해야 한다.
+
+### 6.2 세그멘테이션 backend
+
+[segmentation.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/segmentation.py:294)
+
+| backend | 상태 | 설명 |
+|---|---|---|
+| `demo` | 구현 완료 | 기본값. 색상 기반 휴리스틱 mask 생성 |
+| `swin_m2f` | 구현 완료 | Detectron2 + Mask2Former 기반 |
+| `dino_m2f` | 구현 완료 | DINOv3 backbone + Mask2Former 기반 |
+| `custom_head` | 구현 완료 | 외부 사용자 정의 segmenter 연결 |
+
+현재 기본 설정:
+
+- [settings.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/settings.py:53) `SEG_DEFAULT_BACKEND = "demo"`
+
+즉, 세그멘테이션 adapter 구조는 구현되어 있지만 기본 실행은 데모 mask다.
+
+### 6.3 DINOv3 feature / PCA 시각화
+
+이 부분은 실제 로컬 weight를 읽는 구조가 구현되어 있다.
+
+- backbone 로더: [dinov3_loader.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/dinov3_loader.py:1)
+- PCA 시각화: [pca_focus.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pca_focus.py:20)
+- feature cache: [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:13)
+
+`DinoPcaVisualizer` 가 실패하면 `ImagePatchFallbackVisualizer` 로 폴백한다.
+
+## 7. 모델 weight와 관련 폴더
+
+### 7.1 현재 저장소 내 weight 성격
+
+| 폴더 | 용도 | 현재 상태 |
+|---|---|---|
+| `parameters/DINOv3_pth` | DINOv3 backbone pretrained weight | 파일 존재 |
+| `parameters/Fine-tuned_pth` | 세그멘테이션 fine-tuned weight | 일부 파일 존재 |
+| `parameters/Mask2Formers_pth` | Mask2Former 계열 pretrained/reference weight | 파일 존재 |
+| `parameters/app_models` | 서비스 분류 head weight | 현재 없음 |
+
+### 7.2 설정 파일
+
+모델 경로와 backend 설정은 [settings.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/settings.py:1) 에 모여 있다.
+
+주요 환경변수:
+
+- `CLASSIFIER_BACKEND`
+- `CUSTOM_CLASSIFIER`
+- `FOOT_MODEL_PATH`
+- `DFU_MODEL_PATH`
+- `WAGNER_MODEL_PATH`
+- `SINBAD_MODEL_PATH`
+- `SEG_DEFAULT_BACKEND`
+- `SEG_CONFIG_PATH`
+- `SEG_WEIGHTS_PATH`
+- `DINO_WEIGHTS_PATH`
+- `DINO_M2F_CONFIG_PATH`
+- `DINO_M2F_WEIGHTS_PATH`
+
+## 8. 학습 코드와 참고 코드
+
+### 8.1 학습 코드
+
+`Model_training` 폴더는 서비스 런타임이 아니라 학습과 실험용이다.
+
+| 파일/폴더 | 역할 |
+|---|---|
+| [train_net.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net.py:1) | Detectron2 계열 학습 실행 |
+| [train_net_freeze.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net_freeze.py:1) | 일부 freezing 포함 학습 실행 |
+| `configs/custom/*.yaml` | 세그멘테이션 학습 설정 |
+| `tools/*` | 데이터셋 변환, 학습 보조 |
+| `docs/*` | Colab, Kaggle, 로컬 학습 가이드 |
+| `train_results/*` | 실험 산출물, 평가 결과 |
+
+### 8.2 참고 코드
+
+아래 폴더는 직접 서비스 엔트리포인트가 아니다.
+
+- `dinov3/`: 원본 DINOv3 코드 reference
+- `Mask2formers/`: 원본 Mask2Former reference
+- `DINOv3-Mask2Former/`: 결합 실험 reference
+
+현재 서비스 코드는 가능한 한 이 reference 폴더를 직접 쓰지 않고 adapter를 통해 필요한 부분만 흡수하는 방향이다.
+
+## 9. 현재 구현 수준 요약
+
+### 구현 완료
+
+- FastAPI 기반 웹서버 + 웹앱서버 통합 구조
+- 정적 웹 클라이언트
+- 모델 비교용 카탈로그 API
+- 모델 개별 실행 API
+- 전체 DFU 파이프라인 API
+- 분류기 adapter 구조
+- 세그멘테이션 adapter 구조
+- DINOv3 backbone feature 추출 및 PCA 시각화
+- 메모리 기반 feature cache
+- 학습용 config / training 코드 / 결과 폴더 정리
+
+### 부분 완료
+
+- DINOv3 기반 실제 feature 경로는 구현됨
+- 세그멘테이션 실제 weight 연결은 환경변수/경로 정리가 필요함
+- 분류 실제 head 연결은 `custom` backend 구현체와 weight 준비가 필요함
+- SINBAD 는 현재 단일 결과 중심이며 세부 S/I/N/B/A/D 멀티라벨 헤드는 아직 보류 상태
+
+### 미구현 또는 현재 없음
+
+- DB
+- 사용자 인증
+- 결과 저장
+- 멀티모달 RAG 파이프라인
+- 클라우드 배포용 인프라
+- 프로덕션용 reverse proxy / job queue / model serving 분리
+
+## 10. 로컬 실행
+
 ```powershell
 cd mvp1_classification
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-브라우저에서 `http://localhost:8000`으로 접속한다.
+접속 주소:
 
-### API
-- `GET /`: 모바일 웹 화면 반환
-- `GET /health`: 서버 상태 확인
-- `GET /api/models`: 모델 비교 UI에서 사용할 모델 카탈로그 반환
-- `POST /api/models/{model_id}/run`: 개별 모델 버튼 실행. 모델별 결과, timing/FPS, 좌표, raw output 등을 반환
-- `POST /api/analyze`: 이미지와 선택 임상 입력을 받아 전체 DFU 분석 파이프라인 실행
-- `POST /classify`: 과거 MVP 호환용 단일 classification endpoint
+- `http://localhost:8000`
 
-### 현재 웹 화면 동작
-- 업로드한 동일 이미지에 대해 모델 버튼을 각각 눌러 결과를 비교한다.
-- 모델 결과 카드에는 최소한 다음 항목을 포함한다.
-  - 추론 결과: 예) `foot`, `dfu`, `other_injury`, `wound detected`
-  - 추론 시간(ms), FPS
-  - segmentation 기반 bounding box 좌표와 중심 좌표
-  - raw output/debug 값
-  - 평가 지표 슬롯: DICE, F1, Precision, Recall
-- 현재 DICE/F1/Precision/Recall은 단일 추론 모드에서는 ground truth가 없으므로 `N/A`로 반환한다. 실제 수치는 GT 마스크/정답 라벨이 함께 주어지는 평가 경로에서 계산한다.
+기본 실행 특징:
 
-## 4. 폴더와 파일 역할
+- 분류는 `dummy`
+- 세그멘테이션은 `demo`
+- 구조 검증과 UI 검증은 가능
+- 의료적으로 유효한 실제 판독 결과로 간주하면 안 됨
 
-### 서비스 앱: `mvp1_classification`
-- `app/main.py`: FastAPI 엔트리포인트. 정적 파일, `/health`, `/classify`, `/api/analyze`, `/api/models`, `/api/models/{model_id}/run` 라우팅과 업로드 이미지 검증을 담당한다.
-- `app/schemas.py`: API 응답 스키마. 기존 pipeline 응답뿐 아니라 model catalog, model run result, timing, detection, eval metric, raw output 계약을 정의한다.
-- `app/settings.py`: 모델 경로, label, backend, threshold, CORS 등 환경변수 기본값을 관리한다.
-- `app/model.py`: 과거 `/classify` 호환용 wrapper. 실제 classifier 호출은 `app/services/classifier.py`로 위임한다.
-- `app/services/pipeline.py`: foot classification, segmentation, DFU classification, Wagner/SINBAD classification 흐름을 제어한다.
-- `app/services/classifier.py`: task별 classifier adapter. `foot`, `dfu`, `wagner`, `sinbad`, `legacy` task를 동일한 인터페이스로 호출하며, 필요한 경우 shared feature context를 넘길 수 있다.
-- `app/services/segmentation.py`: wound segmentation adapter. `demo`, `swin_m2f`, `dino_m2f`, `custom_head` backend를 선택할 수 있고, mask 기반 bounding box 계산도 담당한다.
-- `app/services/pca_focus.py`: DINOv3 backbone patch token을 이용한 PCA/cosine visualization을 담당한다.
-- `app/services/dinov3_loader.py`: 로컬 DINOv3 원본 코드와 backbone `.pth`를 직접 읽어 ViT-B/16 backbone을 생성한다.
-- `app/services/feature_store.py`: 업로드 이미지 해시를 기준으로 DINO feature context를 캐시한다. 모델 비교 버튼 여러 개를 눌러도 공통 feature를 재사용하는 경로다.
-- `app/services/model_catalog.py`: 비교 가능한 모델 목록과 메타데이터를 정의한다.
-- `app/services/model_runner.py`: 모델별 실행 entry. 추론 결과, 시간, FPS, bbox, raw output, artifact, feature cache 상태를 모아 반환한다.
-- `app/image_utils.py`: PIL 이미지를 브라우저에서 표시 가능한 base64 data URL로 변환한다.
-- `app/static/index.html`: 모델 비교 workbench 화면.
-- `app/static/styles.css`: 비교 카드, artifact grid, detection/eval metric 섹션을 포함한 반응형 UI 스타일.
-- `app/static/app.js`: 이미지 미리보기, 모델 카탈로그 로드, 개별 모델 실행, 결과 비교 카드 렌더링을 담당한다.
-- `requirements.txt`: 로컬 MVP 실행에 필요한 Python 패키지.
+## 11. 문서 유지 원칙
 
-### 학습/실험: `Model_training`
-- `Model_training/configs/custom/dino_v3_mask2former_wound_instance.yaml`: DINOv3 + Mask2Former wound segmentation config.
-- `Model_training/configs/custom/wound_instance_swinb.yaml`: Swin + Mask2Former 계열 segmentation config.
-- `Model_training/docs/`: Colab/Kaggle/로컬 학습 가이드.
-- `Model_training/notebooks/kaggle_training_dino_m2f.ipynb`: Kaggle 기반 학습 notebook.
-- `Model_training/tools/`: dataset 변환 등 보조 스크립트.
-- `Model_training/train_net.py`, `Model_training/train_net_freeze.py`: 학습 실행 코드.
-
-### 외부 clone reference
-아래 폴더는 GitHub에서 clone한 upstream/reference 코드이며 직접 서비스 코드로 취급하지 않는다.
-- `dinov3/`: DINOv3 backbone 원본 reference.
-- `DINOv3-Mask2Former/` 또는 `DINOv3-Mask2former/`: DINOv3와 Mask2Former 결합 실험 reference.
-- `Mask2formers/`: Mask2Former 원본/참고 구현.
-
-서비스에 필요한 코드는 가능하면 `mvp1_classification/app/services` 아래 adapter로 흡수한다. upstream 폴더를 직접 import하면 배포와 의존성 관리가 어려워지므로, 필요한 부분만 명시적으로 adapter화한다.
-
-### 오케스트레이션 문서
-- `orchestration/ORCHESTRATION.md`: sub-agent 또는 작업 분기 운영 규칙.
-- `orchestration/agent_registry.yaml`: agent 역할 매핑.
-- `orchestration/decision_log.md`: 주요 결정 기록.
-
-## 5. 모델 파라미터 위치
-
-대용량 모델 weight는 Git에 올리지 않고 `parameters/` 아래에 둔다. `parameters/`는 로컬/배포 환경에서 별도로 준비하는 영역으로 취급한다.
-
-권장 구조:
-```text
-parameters/
-  DINOv3_pth/
-    dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
-  segmentation/
-    fastinst_d3/
-      config.yaml
-      model_final.pth
-    dino_m2f/
-      config.yaml
-      model_final.pth
-  classification/
-    foot/
-      model.pt
-    dfu/
-      model.pt
-    wagner/
-      model.pt
-    sinbad/
-      model.pt
-  app_models/
-    legacy_classifier.pt
-```
-
-현재 backbone PCA와 공통 feature backbone 경로는 아래 파일을 기본 사용한다.
-- `parameters/DINOv3_pth/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth`
-
-기본 경로는 `app/settings.py`에 정의되어 있다. 폴더를 바꾸고 싶으면 `DFU_PARAMETERS_DIR` 또는 task별 환경변수를 사용한다.
-
-관련 핵심 경로:
-- `DINO_WEIGHTS_PATH`: DINOv3 backbone PCA/공통 feature backbone
-- `DINO_M2F_CONFIG_PATH`, `DINO_M2F_WEIGHTS_PATH`: DINOv3 segmentation 계열
-- `FOOT_MODEL_PATH`, `DFU_MODEL_PATH`, `WAGNER_MODEL_PATH`, `SINBAD_MODEL_PATH`: classifier head 계열
-
-## 6. 모델 교체 방법
-
-### 모델 없이 MVP 화면/API 실행
-학습 weight가 아직 없을 때는 기본값으로 동작한다.
-
-```powershell
-$env:CLASSIFIER_BACKEND = "dummy"
-$env:SEG_DEFAULT_BACKEND = "demo"
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-이 모드에서는 웹 화면과 API 응답 계약을 검증할 수 있지만, 의료적으로 의미 있는 결과는 아니다.
-
-### DINOv3 + Mask2Former segmentation weight 사용
-```powershell
-$env:SEG_DEFAULT_BACKEND = "dino_m2f"
-$env:DINO_M2F_CONFIG_PATH = "C:\path\to\Model_training\configs\custom\dino_v3_mask2former_wound_instance.yaml"
-$env:DINO_M2F_WEIGHTS_PATH = "C:\path\to\parameters\Fine-tuned_pth\wound_dino_m2f\model_final.pth"
-$env:DINO_WEIGHTS_PATH = "C:\path\to\parameters\DINOv3_pth\dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth"
-```
-
-### task별 classifier weight 사용
-```powershell
-$env:CLASSIFIER_BACKEND = "custom"
-$env:CUSTOM_CLASSIFIER = "your_module:YourClassifier"
-$env:FOOT_MODEL_PATH = "C:\path\to\parameters\app_models\foot_classifier.pt"
-$env:DFU_MODEL_PATH = "C:\path\to\parameters\app_models\dfu_classifier.pt"
-$env:WAGNER_MODEL_PATH = "C:\path\to\parameters\app_models\wagner_classifier.pt"
-$env:SINBAD_MODEL_PATH = "C:\path\to\parameters\app_models\sinbad_classifier.pt"
-```
-
-`CUSTOM_CLASSIFIER`의 class는 `app.services.classifier.BaseClassifier`와 같은 형태로 `load()`와 `predict(image) -> tuple[int, float]`를 구현하면 된다. 이렇게 하면 API와 프론트엔드는 수정하지 않고 모델만 교체할 수 있다.
-
-### custom segmentation adapter 사용
-```powershell
-$env:SEG_DEFAULT_BACKEND = "custom_head"
-$env:CUSTOM_SEGMENTER = "your_module:YourSegmenter"
-```
-
-`YourSegmenter.predict(image)`는 `(mask, area_ratio, wound_present)`를 반환해야 한다.
-
-## 7. 수정/확장 원칙
-
-- API 응답 계약은 `app/schemas.py`를 기준으로 관리한다.
-- 새 classification task는 `app/services/classifier.py`의 `TASKS`에 추가하고 `pipeline.py`에서 호출 순서를 정의한다.
-- 새 segmentation backend는 `app/services/segmentation.py`의 `_BACKEND_FACTORIES`에 adapter를 추가한다.
-- 모델 경로, threshold, label은 코드에 하드코딩하지 않고 `app/settings.py`와 환경변수로 관리한다.
-- 프론트엔드는 `/api/analyze` 응답만 바라보게 유지한다. 모델 내부 구현이 바뀌어도 화면 코드는 최소 수정으로 유지되어야 한다.
-- upstream clone 폴더는 reference로만 사용한다. 서비스 런타임에 직접 의존해야 한다면 별도 adapter와 requirements 정리가 필요하다.
-- 의료/진단 문구는 연구/개발용 disclaimer를 유지한다. 실제 임상 사용 전에는 규제, 보안, 로그, 개인정보 정책을 별도로 확정해야 한다.
-
-## 8. Cloud 배포 준비 메모
-
-cloud 배포 전 결정해야 할 항목:
-- weight 제공 방식: container image 포함, object storage 다운로드, persistent volume mount 중 선택
-- GPU 필요 여부: DINOv3/Mask2Former 실시간 추론이면 GPU 환경 또는 경량화가 필요할 수 있다.
-- 모델 warm-up: 첫 요청 latency를 줄이기 위해 startup 시 모델 load를 고려한다.
-- 업로드 제한: 이미지 크기, 파일 타입, 요청 timeout, 임시 파일 정책을 명시한다.
-- 보안: CORS, 인증, HTTPS, PHI/PII 저장 여부, 로그 마스킹 정책을 확정한다.
-- 관측성: request_id, model version, weight path/hash, inference latency를 기록한다.
-
-## 9. 현재 상태
-
-- `mvp1_classification`은 localhost 실행 가능한 API + 모델 비교 웹 화면 구조를 갖춘 상태다.
-- 개별 모델 버튼은 다음 항목을 분리해 비교할 수 있다.
-  - DINOv3 Backbone PCA
-  - DINOv3 segmentation 경로
-  - Foot / Non-foot
-  - DFU / Other injury
-  - Wagner
-  - SINBAD
-- shared feature cache가 도입되어 같은 이미지에 대해 여러 모델 버튼을 눌러도 공통 DINO feature context를 재사용한다.
-- 현재 `feature_backend`는 실제 `dinov3_vitb16`로 동작한다. 즉 image patch fallback이 아니라 로컬 DINOv3 원본 backbone + `dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth` 기반 feature를 사용한다.
-- `dinov3_linear_foot`와 `dinov3_linear_sinbad`는 실행 검증을 마쳤고, 공통 feature backend가 `dinov3_vitb16`로 표기되는 것을 확인했다.
-- segmentation 결과 카드에는 wound detection 여부, area ratio, bbox 좌표, 중심 좌표, timing/FPS가 포함된다.
-- 분류 결과 카드에는 최종 class label, confidence, timing/FPS, feature cache hit/miss, raw output이 포함된다.
-- DICE/F1/Precision/Recall은 현재 inference-only 경로에서는 GT가 없으므로 `N/A`로 남겨두고, 추후 평가용 endpoint 또는 dataset 기반 batch evaluator에서 실제 수치를 계산하도록 설계했다.
+이 문서는 현재 코드 기준 아키텍처 문서다. `DFU_PROJECT.md` 와 `README.md` 는 동일한 내용을 유지한다.
