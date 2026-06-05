@@ -54,14 +54,15 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  Client["Client\n현재: 정적 웹 MVP\n향후: 모바일 앱"] --> Edge["Application Server\nFastAPI + Uvicorn"]
-  Edge --> API["API Layer\n/, /health, /api/models,\n/api/models/{model_id}/run, /api/analyze, /classify"]
-  API --> Orchestrator["Inference Orchestrator\nservices/pipeline.py\nservices/model_runner.py"]
-  Orchestrator --> Models["Model Adapters\nclassifier.py / segmentation.py\npca_focus.py / dinov3_loader.py"]
-  Models --> Weights["Model Assets\nparameters/*.pth / *.pt"]
-  Orchestrator --> Cache["Runtime Cache\nfeature_store.py\nin-memory LRU"]
-  API --> Static["Static Web Assets\nstatic/index.html\nstatic/app.js\nstatic/styles.css"]
-  API -. future .-> DB["Persistent Storage\n현재 미구현\n향후 사용자 계정별 업로드/결과 저장"]
+  Client["Client\n현재: Web MVP 브라우저\n향후: 모바일 앱"] <--> Web["Web Server / Application Server\nFastAPI + Uvicorn\n실행: uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+  Web <--> Static["Static Web UI\nindex.html / app.js / styles.css\n브라우저 로드 후 API 호출"]
+  Web <--> API["API Endpoints\nGET /, /health, /api/models\nPOST /api/models/{model_id}/run\nPOST /api/analyze, /classify"]
+  API <--> Orchestrator["Inference Orchestrator\npipeline.py / model_runner.py\n요청 단위로 추론 흐름 제어"]
+  Orchestrator <--> Models["Model Adapters\nclassifier.py / segmentation.py\npca_focus.py / dinov3_loader.py"]
+  Models --> Weights["Model Assets\nparameters/*.pth / *.pt\n로컬 파일에서 로드"]
+  Orchestrator <--> Cache["Runtime Cache\nfeature_store.py\n프로세스 메모리 LRU"]
+  Client -. future account/image/result sync .- DB["Persistent Storage / DB\n현재 미구현\n향후 계정별 이미지, 결과, 메타데이터 저장"]
+  Web -. future persistence .-> DB
   Training["Training & References\nModel_training/\ndinov3/\nMask2formers/\nDINOv3-Mask2Former/"] --> Weights
 ```
 
@@ -76,6 +77,23 @@ flowchart LR
 | Runtime Cache | 동일 요청 흐름에서 공통 feature 재사용, 반복 연산 절감 | in-memory LRU cache | [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:1) |
 | Persistent Storage | 현재는 없음. 향후 사용자 계정 기준 원본 이미지, 분석 결과, 메타데이터 저장 계층으로 확장 예정 | 향후 RDBMS, Object Storage, Vector DB 조합 가능 | 현재 미구현 |
 | Training & References | 학습 스크립트, 실험 설정, 외부 레퍼런스 코드 관리 | Detectron2, Mask2Former, DINOv3 계열 학습/실험 코드 | [train_net.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net.py:1), [train_net_freeze.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net_freeze.py:1) |
+
+### 통신 원리
+
+1. Client가 브라우저에서 `GET /` 를 요청하면 FastAPI 서버가 정적 UI를 내려준다.
+2. 브라우저에 로드된 `app.js` 가 이후 `GET /health`, `GET /api/models`, `POST /api/analyze` 같은 API를 다시 호출한다.
+3. 서버는 요청마다 입력 이미지를 검증하고, `pipeline.py` 또는 `model_runner.py` 로 추론을 위임한다.
+4. 추론 과정에서 필요한 feature는 프로세스 메모리 캐시에서 재사용하고, 필요한 모델 weight는 `parameters/` 아래 로컬 파일에서 읽는다.
+5. 서버는 최종 결과를 JSON과 아티팩트 정보로 응답하고, Client는 이를 카드/마스크/메트릭 형태로 렌더링한다.
+6. 향후 DB가 붙으면 Client의 업로드 결과와 사용자 이력은 서버를 거쳐 저장되고 다시 조회되는 구조가 된다.
+
+### 서버가 떠 있는 방식
+
+- 현재는 단일 프로세스 FastAPI 애플리케이션이 웹서버와 애플리케이션 서버 역할을 함께 수행한다.
+- 실행 명령은 `uvicorn app.main:app --host 0.0.0.0 --port 8000` 이며, Uvicorn이 HTTP 요청을 받고 FastAPI 라우터로 넘긴다.
+- `/` 요청은 웹 UI를 반환하고, `/api/*` 요청은 서비스 레이어를 호출한다.
+- 별도 reverse proxy, job queue, model serving worker, DB 세션 계층은 아직 없다.
+- 따라서 현재 구조는 MVP 검증에는 단순하고 빠르지만, 동시성·영속 저장·비동기 작업은 향후 분리 대상이다.
 
 ## 3. 현재 구성 요소
 
