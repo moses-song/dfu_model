@@ -54,15 +54,18 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  Client["Client\n현재: Web MVP 브라우저\n향후: 모바일 앱"] <--> Web["Web Server / Application Server\nFastAPI + Uvicorn\n실행: uvicorn app.main:app --host 0.0.0.0 --port 8000"]
-  Web <--> Static["Static Web UI\nindex.html / app.js / styles.css\n브라우저 로드 후 API 호출"]
-  Web <--> API["API Endpoints\nGET /, /health, /api/models\nPOST /api/models/{model_id}/run\nPOST /api/analyze, /classify"]
-  API <--> Orchestrator["Inference Orchestrator\npipeline.py / model_runner.py\n요청 단위로 추론 흐름 제어"]
-  Orchestrator <--> Models["Model Adapters\nclassifier.py / segmentation.py\npca_focus.py / dinov3_loader.py"]
+  Client["Client\n현재: Web MVP 브라우저\n향후: 모바일 앱"] <--> Web["Web Server\nFastAPI + Uvicorn\n정적 UI 서빙 + API 처리"]
+  Web <--> DB["DB Server\n현재 미구현\n향후 계정별 이미지/결과/메타데이터 저장"]
+  Client <--> WebUI["Web UI\nindex.html / app.js / styles.css\n브라우저에서 로드"]
+  Web <--> TaskAPI["Task Test API\n/api/models\n/api/models/{model_id}/run\n후보 모델별 비교 실행"]
+  Web <--> PipelineAPI["One-button Pipeline API\n/api/analyze\n분기 기반 순차 실행"]
+  TaskAPI <--> Orchestrator["Inference Orchestrator\nmodel_runner.py / model_catalog.py\nTask별 테스트 흐름 제어"]
+  PipelineAPI <--> Orchestrator2["Pipeline Orchestrator\npipeline.py\n원버튼 전체 흐름 제어"]
+  Orchestrator <--> Models["Candidate Model Adapters\nclassifier.py / segmentation.py\npca_focus.py / dinov3_loader.py"]
+  Orchestrator2 <--> Models
   Models --> Weights["Model Assets\nparameters/*.pth / *.pt\n로컬 파일에서 로드"]
   Orchestrator <--> Cache["Runtime Cache\nfeature_store.py\n프로세스 메모리 LRU"]
-  Client -. future account/image/result sync .- DB["Persistent Storage / DB\n현재 미구현\n향후 계정별 이미지, 결과, 메타데이터 저장"]
-  Web -. future persistence .-> DB
+  Orchestrator2 <--> Cache
   Training["Training & References\nModel_training/\ndinov3/\nMask2formers/\nDINOv3-Mask2Former/"] --> Weights
 ```
 
@@ -70,28 +73,32 @@ flowchart LR
 
 | 구성 요소 | 현재 역할 | 주요 라이브러리/모듈 | 대표 파일 |
 |---|---|---|---|
-| Client | 이미지 업로드, 분석 요청, 결과 카드/마스크/메트릭 렌더링 | HTML, CSS, Vanilla JS | [index.html](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/index.html:1), [app.js](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/app.js:1), [styles.css](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/styles.css:1) |
-| Application Server | 정적 파일 서빙, API 라우팅, 입력 검증, 추론 호출 | FastAPI, Uvicorn, Pydantic | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:1), [schemas.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/schemas.py:1), [settings.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/settings.py:1) |
-| Inference Orchestrator | 전체 분석 순서 제어, 모델별 실행 분기, 결과 조합 | 서비스 레이어, 요청 단위 orchestration | [pipeline.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pipeline.py:1), [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:1), [model_catalog.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_catalog.py:1) |
-| Model Adapters | 분류기/세그멘터/시각화 백엔드 추상화 및 로딩 | PyTorch 기반 모델 로더, Detectron2/Mask2Former 연동 구조, DINOv3 feature 처리 | [classifier.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/classifier.py:1), [segmentation.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/segmentation.py:1), [pca_focus.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pca_focus.py:1), [dinov3_loader.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/dinov3_loader.py:1) |
+| Client | 이미지 업로드, task 선택, 후보모델 테스트 실행, 결과 카드/마스크/메트릭 렌더링 | HTML, CSS, Vanilla JS | [index.html](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/index.html:1), [app.js](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/app.js:1), [styles.css](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/styles.css:1) |
+| Web Server | 정적 파일 서빙, API 라우팅, 입력 검증, task별 테스트 실행, 원버튼 파이프라인 실행 | FastAPI, Uvicorn, Pydantic | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:1), [schemas.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/schemas.py:1), [settings.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/settings.py:1) |
+| Task Test Layer | 후보 모델을 task별로 따로 실행하고 결과물을 비교하는 현재 MVP 핵심 기능 | 서비스 레이어, 요청 단위 orchestration | [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:1), [model_catalog.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_catalog.py:1) |
+| Pipeline Layer | 분기에 따라 전체 추론 흐름을 한 번에 순차 실행하는 최종 서비스형 파이프라인 | 서비스 레이어, 조건 분기 orchestration | [pipeline.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pipeline.py:1) |
+| Candidate Model Adapters | 분류기/세그멘터/시각화 후보모델 백엔드 추상화 및 로딩 | PyTorch 기반 모델 로더, Detectron2/Mask2Former 연동 구조, DINOv3 feature 처리 | [classifier.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/classifier.py:1), [segmentation.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/segmentation.py:1), [pca_focus.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pca_focus.py:1), [dinov3_loader.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/dinov3_loader.py:1) |
 | Runtime Cache | 동일 요청 흐름에서 공통 feature 재사용, 반복 연산 절감 | in-memory LRU cache | [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:1) |
-| Persistent Storage | 현재는 없음. 향후 사용자 계정 기준 원본 이미지, 분석 결과, 메타데이터 저장 계층으로 확장 예정 | 향후 RDBMS, Object Storage, Vector DB 조합 가능 | 현재 미구현 |
+| DB Server | 현재는 없음. 향후 사용자 계정 기준 원본 이미지, 분석 결과, 메타데이터 저장 계층으로 확장 예정 | 향후 RDBMS, Object Storage, Vector DB 조합 가능 | 현재 미구현 |
 | Training & References | 학습 스크립트, 실험 설정, 외부 레퍼런스 코드 관리 | Detectron2, Mask2Former, DINOv3 계열 학습/실험 코드 | [train_net.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net.py:1), [train_net_freeze.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net_freeze.py:1) |
 
 ### 통신 원리
 
-1. Client가 브라우저에서 `GET /` 를 요청하면 FastAPI 서버가 정적 UI를 내려준다.
-2. 브라우저에 로드된 `app.js` 가 이후 `GET /health`, `GET /api/models`, `POST /api/analyze` 같은 API를 다시 호출한다.
-3. 서버는 요청마다 입력 이미지를 검증하고, `pipeline.py` 또는 `model_runner.py` 로 추론을 위임한다.
-4. 추론 과정에서 필요한 feature는 프로세스 메모리 캐시에서 재사용하고, 필요한 모델 weight는 `parameters/` 아래 로컬 파일에서 읽는다.
-5. 서버는 최종 결과를 JSON과 아티팩트 정보로 응답하고, Client는 이를 카드/마스크/메트릭 형태로 렌더링한다.
-6. 향후 DB가 붙으면 Client의 업로드 결과와 사용자 이력은 서버를 거쳐 저장되고 다시 조회되는 구조가 된다.
+1. Client가 브라우저에서 `GET /` 를 요청하면 Web Server가 정적 UI를 내려준다.
+2. 브라우저에 로드된 `app.js` 가 이후 `GET /health`, `GET /api/models`, `POST /api/models/{model_id}/run`, `POST /api/analyze` 같은 API를 다시 호출한다.
+3. 현재 MVP의 중심은 `task별 후보모델 테스트` 이므로, Client는 특정 task를 고른 뒤 해당 후보 모델을 따로 실행해 결과물을 비교할 수 있다.
+4. Web Server는 task 테스트 요청이면 `model_runner.py` 중심으로, 원버튼 전체 실행 요청이면 `pipeline.py` 중심으로 분기해 처리한다.
+5. 추론 과정에서 필요한 feature는 프로세스 메모리 캐시에서 재사용하고, 필요한 모델 weight는 `parameters/` 아래 로컬 파일에서 읽는다.
+6. 서버는 최종 결과를 JSON과 아티팩트 정보로 응답하고, Client는 이를 카드/마스크/메트릭 형태로 렌더링한다.
+7. 향후 DB Server가 붙으면 Client의 업로드 결과와 사용자 이력은 Web Server를 거쳐 저장되고 다시 조회되는 구조가 된다.
 
 ### 서버가 떠 있는 방식
 
-- 현재는 단일 프로세스 FastAPI 애플리케이션이 웹서버와 애플리케이션 서버 역할을 함께 수행한다.
+- 현재는 단일 프로세스 FastAPI 애플리케이션이 Web Server 역할과 애플리케이션 처리 역할을 함께 수행한다.
 - 실행 명령은 `uvicorn app.main:app --host 0.0.0.0 --port 8000` 이며, Uvicorn이 HTTP 요청을 받고 FastAPI 라우터로 넘긴다.
 - `/` 요청은 웹 UI를 반환하고, `/api/*` 요청은 서비스 레이어를 호출한다.
+- 현재 서비스 성격은 완성형 원버튼 진단 서비스라기보다, 후보 모델을 task별로 시험하고 결과를 비교하는 MVP 워크벤치에 가깝다.
+- 향후 목표 구조는 사용자가 원버튼으로 요청하면 분기에 맞게 전체 task를 순차 실행하고, 필요한 경우 일부 단계는 subprocess 또는 별도 worker로 병렬 실행하는 형태다.
 - 별도 reverse proxy, job queue, model serving worker, DB 세션 계층은 아직 없다.
 - 따라서 현재 구조는 MVP 검증에는 단순하고 빠르지만, 동시성·영속 저장·비동기 작업은 향후 분리 대상이다.
 
@@ -125,7 +132,7 @@ flowchart LR
 현재 서버는 하나의 FastAPI 프로세스가 두 역할을 동시에 수행한다.
 
 - 웹서버 역할: 정적 HTML/CSS/JS 서빙
-- 웹앱서버 역할: API 라우팅, 이미지 검증, 파이프라인 실행, 모델 실행
+- 웹앱서버 역할: API 라우팅, 이미지 검증, task별 후보모델 실행, 원버튼 파이프라인 실행
 
 실행 진입점:
 
@@ -165,8 +172,8 @@ flowchart LR
 
 - 이미지 파일 선택
 - `/health` 로 서버 상태 확인
-- `/api/models` 로 버튼 목록 로드
-- `/api/models/{model_id}/run` 으로 모델별 비교 실행
+- `/api/models` 로 task별 후보모델 목록 로드
+- `/api/models/{model_id}/run` 으로 후보모델별 결과 비교 실행
 - `/api/analyze` 로 전체 파이프라인 실행
 - 결과 카드, metric, artifact 이미지 렌더링
 
@@ -369,8 +376,8 @@ flowchart LR
 
 - FastAPI 기반 웹서버 + 웹앱서버 통합 구조
 - 정적 웹 클라이언트
-- 모델 비교용 카탈로그 API
-- 모델 개별 실행 API
+- task별 후보모델 비교용 카탈로그 API
+- task별 모델 개별 실행 API
 - 전체 DFU 파이프라인 API
 - 분류기 adapter 구조
 - 세그멘테이션 adapter 구조
@@ -381,9 +388,11 @@ flowchart LR
 ### 부분 완료
 
 - DINOv3 기반 실제 feature 경로는 구현됨
+- 현재 MVP의 강점은 완성형 자동 진단보다 task별 후보모델 결과를 비교·검증하는 워크벤치 구조임
 - 세그멘테이션 실제 weight 연결은 환경변수/경로 정리가 필요함
 - 분류 실제 head 연결은 `custom` backend 구현체와 weight 준비가 필요함
 - SINBAD 는 현재 단일 결과 중심이며 세부 S/I/N/B/A/D 멀티라벨 헤드는 아직 보류 상태
+- 최종 목표인 원버튼 순차 실행 파이프라인은 구조가 있으나, 완전한 production 플로우로 고정된 상태는 아님
 
 ### 미구현 또는 현재 없음
 
