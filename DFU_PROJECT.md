@@ -43,53 +43,43 @@ flowchart TD
   L --> M{"DFU인가?"}
   M -->|no| N["other injury 분기"]
   M -->|yes| O["4. Wagner / SINBAD classification"]
-  O --> P["5. 임상 텍스트가 있으면 multimodal/RAG 확장"]
+  O --> P["5. multimodal/RAG 확장"]
   P --> Q["AnalysisResult JSON 응답"]
 
   K3 --> Q
   K4 --> Q
 ```
 
-### 시스템 구조
+### 애플리케이션 아키텍처
 
 ```mermaid
-flowchart TD
-  U["사용자 브라우저"] --> C["Client: static/index.html + app.js + styles.css"]
-  C --> S["Web Server + Web App Server: FastAPI app/main.py"]
-  S --> API1["GET /"]
-  S --> API2["GET /health"]
-  S --> API3["GET /api/models"]
-  S --> API4["POST /api/models/{model_id}/run"]
-  S --> API5["POST /api/analyze"]
-  S --> API6["POST /classify"]
-
-  API4 --> MR["services/model_runner.py"]
-  API5 --> PL["services/pipeline.py"]
-  API6 --> LG["model.py -> services/classifier.py"]
-
-  MR --> FS["services/feature_store.py"]
-  MR --> PCA["services/pca_focus.py"]
-  MR --> SEG["services/segmentation.py"]
-  MR --> CLS["services/classifier.py"]
-
-  PL --> SEG
-  PL --> CLS
-
-  SEG --> DINO["services/dinov3_loader.py"]
-  PCA --> DINO
-  DINO --> W1["parameters/DINOv3_pth/*.pth"]
-  SEG --> W2["parameters/Fine-tuned_pth/*.pth"]
-  CLS --> W3["parameters/app_models/*.pt"]
-
-  T["Model_training/*"] --> W2
-  R1["dinov3/"] --> DINO
-  R2["Mask2formers/"] --> SEG
-  R3["DINOv3-Mask2Former/"] --> SEG
+flowchart LR
+  Client["Client\n현재: 정적 웹 MVP\n향후: 모바일 앱"] --> Edge["Application Server\nFastAPI + Uvicorn"]
+  Edge --> API["API Layer\n/, /health, /api/models,\n/api/models/{model_id}/run, /api/analyze, /classify"]
+  API --> Orchestrator["Inference Orchestrator\nservices/pipeline.py\nservices/model_runner.py"]
+  Orchestrator --> Models["Model Adapters\nclassifier.py / segmentation.py\npca_focus.py / dinov3_loader.py"]
+  Models --> Weights["Model Assets\nparameters/*.pth / *.pt"]
+  Orchestrator --> Cache["Runtime Cache\nfeature_store.py\nin-memory LRU"]
+  API --> Static["Static Web Assets\nstatic/index.html\nstatic/app.js\nstatic/styles.css"]
+  API -. future .-> DB["Persistent Storage\n현재 미구현\n향후 사용자 계정별 업로드/결과 저장"]
+  Training["Training & References\nModel_training/\ndinov3/\nMask2formers/\nDINOv3-Mask2Former/"] --> Weights
 ```
+
+### 아키텍처 구성 설명
+
+| 구성 요소 | 현재 역할 | 주요 라이브러리/모듈 | 대표 파일 |
+|---|---|---|---|
+| Client | 이미지 업로드, 분석 요청, 결과 카드/마스크/메트릭 렌더링 | HTML, CSS, Vanilla JS | [index.html](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/index.html:1), [app.js](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/app.js:1), [styles.css](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/styles.css:1) |
+| Application Server | 정적 파일 서빙, API 라우팅, 입력 검증, 추론 호출 | FastAPI, Uvicorn, Pydantic | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:1), [schemas.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/schemas.py:1), [settings.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/settings.py:1) |
+| Inference Orchestrator | 전체 분석 순서 제어, 모델별 실행 분기, 결과 조합 | 서비스 레이어, 요청 단위 orchestration | [pipeline.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pipeline.py:1), [model_runner.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_runner.py:1), [model_catalog.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/model_catalog.py:1) |
+| Model Adapters | 분류기/세그멘터/시각화 백엔드 추상화 및 로딩 | PyTorch 기반 모델 로더, Detectron2/Mask2Former 연동 구조, DINOv3 feature 처리 | [classifier.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/classifier.py:1), [segmentation.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/segmentation.py:1), [pca_focus.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/pca_focus.py:1), [dinov3_loader.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/dinov3_loader.py:1) |
+| Runtime Cache | 동일 요청 흐름에서 공통 feature 재사용, 반복 연산 절감 | in-memory LRU cache | [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:1) |
+| Persistent Storage | 현재는 없음. 향후 사용자 계정 기준 원본 이미지, 분석 결과, 메타데이터 저장 계층으로 확장 예정 | 향후 RDBMS, Object Storage, Vector DB 조합 가능 | 현재 미구현 |
+| Training & References | 학습 스크립트, 실험 설정, 외부 레퍼런스 코드 관리 | Detectron2, Mask2Former, DINOv3 계열 학습/실험 코드 | [train_net.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net.py:1), [train_net_freeze.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/Model_training/train_net_freeze.py:1) |
 
 ## 3. 현재 구성 요소
 
-### 3.1 DB
+### 3.1 DB / 저장 계층
 
 현재 별도 DB는 없다.
 
@@ -105,7 +95,14 @@ flowchart TD
 - 공통 feature cache는 [feature_store.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/services/feature_store.py:1) 에서 프로세스 메모리 LRU 형태로 유지된다.
 - 모델 weight는 `parameters/` 폴더에서 파일로 읽는다.
 
-### 3.2 서버
+향후 확장 방향:
+
+- 사용자 계정별 원본 이미지 저장
+- 분석 결과 JSON 및 마스크 아티팩트 저장
+- 임상 텍스트 입력과 추론 결과 이력 관리
+- 클라우드 object storage + metadata DB 구조로 확장 가능
+
+### 3.2 Application Server
 
 현재 서버는 하나의 FastAPI 프로세스가 두 역할을 동시에 수행한다.
 
@@ -114,10 +111,16 @@ flowchart TD
 
 실행 진입점:
 
-- [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:1)
+- [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:1)
 - 실행 명령: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
 
-현재 별도 리버스 프록시(Nginx, Apache)나 별도 WAS 계층은 없다.
+현재 별도 리버스 프록시(Nginx, Apache)나 별도 WAS 계층은 없다. 다만 향후 클라우드 배포 시에는 다음과 같이 자연스럽게 분리할 수 있다.
+
+- Edge/Reverse Proxy
+- App Server
+- Background Job Queue
+- Model Serving Worker
+- Storage Layer
 
 ### 3.3 API
 
@@ -125,16 +128,16 @@ flowchart TD
 
 | Method | Path | 역할 | 실행 파일 |
 |---|---|---|---|
-| `GET` | `/` | 메인 웹 화면 반환 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:50) |
-| `GET` | `/health` | 서버 상태 확인 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:55) |
-| `GET` | `/api/models` | 모델 비교용 카탈로그 반환 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:60) |
-| `POST` | `/api/models/{model_id}/run` | 개별 모델 단위 실행 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:101) |
-| `POST` | `/api/analyze` | 전체 DFU 파이프라인 실행 | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:82) |
-| `POST` | `/classify` | 구형 단일 분류 호환 API | [app/main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:65) |
+| `GET` | `/` | 메인 웹 화면 반환 | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:50) |
+| `GET` | `/health` | 서버 상태 확인 | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:55) |
+| `GET` | `/api/models` | 모델 비교용 카탈로그 반환 | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:60) |
+| `POST` | `/api/models/{model_id}/run` | 개별 모델 단위 실행 | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:101) |
+| `POST` | `/api/analyze` | 전체 DFU 파이프라인 실행 | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:82) |
+| `POST` | `/classify` | 구형 단일 분류 호환 API | [main.py](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/main.py:65) |
 
 ### 3.4 Client
 
-현재 클라이언트는 서버가 함께 제공하는 정적 웹앱이다.
+현재 클라이언트는 서버가 함께 제공하는 정적 웹앱이다. 제품 관점에서는 모바일 앱으로 확장될 수 있고, 지금 웹 UI는 MVP 검증용 프런트엔드로 보는 것이 맞다.
 
 - 화면 템플릿: [index.html](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/index.html:1)
 - 동작 스크립트: [app.js](/C:/Users/RexSoft/Desktop/Project/당뇨발과제/PM업무_송모세/1st_mvp/mvp1_classification/app/static/app.js:1)
@@ -149,7 +152,12 @@ flowchart TD
 - `/api/analyze` 로 전체 파이프라인 실행
 - 결과 카드, metric, artifact 이미지 렌더링
 
-현재 별도 모바일 앱, React SPA, Next.js 프런트엔드, Electron 클라이언트는 없다.
+향후 확장 방향:
+
+- 모바일 앱 클라이언트
+- 인증/계정 연결
+- 사용자별 분석 기록 조회
+- 클라우드 저장소 연동
 
 ## 4. 서비스 코드 구조
 
