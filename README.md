@@ -23,51 +23,232 @@
 
 ```mermaid
 flowchart TD
-  A["Mobile/Web browser"] --> B["FastAPI POST /api/analyze"]
-  B --> C["이미지 검증 및 PIL RGB 변환"]
-  C --> D["pipeline.py orchestration"]
-  D --> E["1. Foot classification"]
-  D --> F["2. Wound segmentation"]
-  F --> G["original / overlay / binary mask"]
-  E --> H{"발 이미지인가?"}
-  H -->|no| I["재촬영 안내"]
-  H -->|yes| J{"상처가 감지되었는가?"}
+  %% =========================
+  %% Client / API Entry
+  %% =========================
+  subgraph Client["Client"]
+    A["Mobile / Web Browser"]
+  end
 
-  J -->|no| K["상처 미감지 안내"]
-  K --> K1["Normal skin / Grade 0 classification"]
-  K1 --> K2{"분류 결과"}
-  K2 -->|normal skin| K3["Normal skin 안내"]
-  K2 -->|grade 0| K4["Wagner Grade 0 안내"]
+  subgraph API["FastAPI API Layer"]
+    B["POST /api/analyze"]
+    C["Upload image validation"]
+    C1["PIL RGB 변환 / 전처리"]
+  end
 
-  J -->|yes| L["3. DFU classification"]
-  L --> M{"DFU인가?"}
-  M -->|no| N["other injury 분기"]
-  M -->|yes| O["4. Wagner / SINBAD classification"]
-  O --> P["5. multimodal/RAG 확장"]
-  P --> Q["AnalysisResult JSON 응답"]
+  %% =========================
+  %% Pipeline
+  %% =========================
+  subgraph Pipeline["Pipeline Orchestration<br/>app/services/pipeline.py"]
+    D["analyze_image()"]
+  end
 
+  %% =========================
+  %% Model Tasks
+  %% =========================
+  subgraph Models["Inference Tasks"]
+    E["1. Foot Classification"]
+    F["2. Wound Segmentation"]
+    G["Mask Artifacts<br/>original / overlay / binary mask"]
+    L["3. DFU Classification"]
+    O["4. Wagner / SINBAD Classification"]
+    P["5. Optional Multimodal / RAG<br/>glucose / HbA1c / memo"]
+  end
+
+  %% =========================
+  %% Decisions
+  %% =========================
+  subgraph Decision["Decision Branches"]
+    H{"발 이미지인가?"}
+    J{"상처가 감지되었는가?"}
+    M{"DFU인가?"}
+    K2{"Normal skin / Grade 0<br/>분류 결과"}
+  end
+
+  %% =========================
+  %% User-facing Outputs
+  %% =========================
+  subgraph Output["Response / Guidance"]
+    I["재촬영 안내"]
+    K["상처 미감지 안내"]
+    K1["Normal skin / Grade 0 Classification"]
+    K3["Normal skin 안내"]
+    K4["Wagner Grade 0 안내"]
+    N["Other injury 분기"]
+    Q["AnalysisResult JSON Response"]
+  end
+
+  %% =========================
+  %% Flow
+  %% =========================
+  A --> B --> C --> C1 --> D
+
+  D --> E
+  D --> F
+  F --> G
+
+  E --> H
+  H -->|no| I
+  H -->|yes| J
+
+  J -->|no| K
+  K --> K1 --> K2
+  K2 -->|normal skin| K3
+  K2 -->|grade 0| K4
+
+  J -->|yes| L
+  L --> M
+  M -->|no| N
+  M -->|yes| O
+  O --> P
+
+  I --> Q
   K3 --> Q
   K4 --> Q
+  N --> Q
+  P --> Q
+
+  %% =========================
+  %% Styles
+  %% =========================
+  classDef client fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+  classDef api fill:#ede7f6,stroke:#4527a0,stroke-width:2px
+  classDef pipeline fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+  classDef model fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+  classDef decision fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+  classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+
+  class A client
+  class B,C,C1 api
+  class D pipeline
+  class E,F,G,L,O,P model
+  class H,J,M,K2 decision
+  class I,K,K1,K3,K4,N,Q output
 ```
 
 ### 애플리케이션 아키텍처
 
 ```mermaid
 flowchart LR
-  Client["Client\n현재: Web MVP 브라우저\n향후: 모바일 앱"] <--> Web["Web Server\nFastAPI + Uvicorn\n정적 UI 서빙 + API 처리"]
-  Web <--> DB["DB Server\n현재 미구현\n향후 계정별 이미지/결과/메타데이터 저장"]
-  Client <--> WebUI["Web UI\nindex.html / app.js / styles.css\n브라우저에서 로드"]
-  Web <--> TaskAPI["Task Test API\n/api/models\n/api/models/{model_id}/run\n후보 모델별 비교 실행"]
-  Web <--> PipelineAPI["One-button Pipeline API\n/api/analyze\n분기 기반 순차 실행"]
-  TaskAPI <--> Orchestrator["Inference Orchestrator\nmodel_runner.py / model_catalog.py\nTask별 테스트 흐름 제어"]
-  PipelineAPI <--> Orchestrator2["Pipeline Orchestrator\npipeline.py\n원버튼 전체 흐름 제어"]
-  Orchestrator <--> Models["Candidate Model Adapters\nclassifier.py / segmentation.py\npca_focus.py / dinov3_loader.py"]
-  Orchestrator2 <--> Models
-  Models --> Weights["Model Assets\nparameters/*.pth / *.pt\n로컬 파일에서 로드"]
-  Orchestrator <--> Cache["Runtime Cache\nfeature_store.py\n프로세스 메모리 LRU"]
-  Orchestrator2 <--> Cache
-  Training["Training & References\nModel_training/\ndinov3/\nMask2formers/\nDINOv3-Mask2Former/"] --> Weights
+  %% =========================
+  %% Client
+  %% =========================
+  subgraph Client["Client Layer"]
+    C1["Web Browser<br/>현재 MVP"]
+    C2["Mobile App<br/>향후 확장"]
+    C3["Static UI<br/>index.html / app.js / styles.css"]
+  end
+
+  %% =========================
+  %% Web Server
+  %% =========================
+  subgraph WebServer["Web Server / Application Server<br/>FastAPI + Uvicorn"]
+    W1["Static File Serving<br/>GET /"]
+    W2["API Router<br/>/health<br/>/api/models<br/>/api/models/{model_id}/run<br/>/api/analyze"]
+    W3["Request Validation<br/>image upload / schema validation"]
+    
+    subgraph ServiceLayer["Service Layer"]
+      S1["One-button Pipeline<br/>pipeline.py"]
+      S2["Task Test Runner<br/>model_runner.py"]
+      S3["Model Catalog<br/>model_catalog.py"]
+    end
+
+    subgraph ModelLayer["Model / Inference Layer<br/>현재 Web Server 내부에서 실행"]
+      M1["Classifier Adapter<br/>classifier.py"]
+      M2["Segmentation Adapter<br/>segmentation.py"]
+      M3["DINOv3 Feature / PCA<br/>dinov3_loader.py / pca_focus.py"]
+      M4["Runtime Feature Cache<br/>feature_store.py"]
+    end
+
+    subgraph Assets["Local Model Assets"]
+      A1["parameters/*.pth / *.pt"]
+      A2["Config files<br/>settings.py / env vars"]
+    end
+  end
+
+  %% =========================
+  %% DB / Storage
+  %% =========================
+  subgraph DBServer["DB / Storage Server<br/>현재 미구현, 향후 확장"]
+    D1["User Account DB"]
+    D2["Image Metadata DB"]
+    D3["Analysis Result DB"]
+    D4["Object Storage<br/>original / overlay / mask"]
+    D5["Vector DB<br/>RAG 확장 시"]
+  end
+
+  %% =========================
+  %% Offline Training
+  %% =========================
+  subgraph Training["Offline Training / Reference Code"]
+    T1["Model_training/"]
+    T2["dinov3/"]
+    T3["Mask2formers/"]
+    T4["DINOv3-Mask2Former/"]
+  end
+
+  %% =========================
+  %% Main Communication
+  %% =========================
+  C1 -->|"GET /"| W1
+  C1 -->|"API Request"| W2
+  C2 -.->|"향후 API Request"| W2
+  W1 --> C3
+  C3 -->|"POST /api/analyze"| W2
+  C3 -->|"POST /api/models/{model_id}/run"| W2
+
+  W2 --> W3
+  W3 --> S1
+  W3 --> S2
+  S2 --> S3
+
+  S1 --> M1
+  S1 --> M2
+  S1 --> M3
+  S2 --> M1
+  S2 --> M2
+  S2 --> M3
+
+  M1 --> M4
+  M2 --> M4
+  M3 --> M4
+
+  M1 --> A1
+  M2 --> A1
+  M3 --> A1
+  A2 --> M1
+  A2 --> M2
+  A2 --> M3
+
+  W2 -.->|"향후 저장 / 조회"| DBServer
+  DBServer -.-> D1
+  DBServer -.-> D2
+  DBServer -.-> D3
+  DBServer -.-> D4
+  DBServer -.-> D5
+
+  Training -.->|"학습 산출물 export"| A1
+
+  %% =========================
+  %% Styles
+  %% =========================
+  classDef client fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+  classDef web fill:#ede7f6,stroke:#4527a0,stroke-width:2px
+  classDef service fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+  classDef model fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+  classDef asset fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+  classDef db fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5
+  classDef train fill:#eeeeee,stroke:#424242,stroke-width:2px,stroke-dasharray: 5 5
+
+  class C1,C2,C3 client
+  class W1,W2,W3 web
+  class S1,S2,S3 service
+  class M1,M2,M3,M4 model
+  class A1,A2 asset
+  class D1,D2,D3,D4,D5 db
+  class T1,T2,T3,T4 train
 ```
+
 
 ### 아키텍처 구성 설명
 
