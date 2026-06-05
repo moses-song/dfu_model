@@ -1,0 +1,18 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: mvp1_classification/Dockerfile
+    image: dfu-mvp:latest
+    container_name: dfu-mvp-web
+    ports:
+      - "8000:8000"
+    environment:
+      DFU_PARAMETERS_DIR: /srv/parameters
+      CLASSIFIER_BACKEND: dummy
+      SEG_DEFAULT_BACKEND: demo
+      DINO_DEVICE: cpu
+      SEG_DEVICE: cpu
+    volumes:
+      - ./parameters:/srv/parameters:ro
+    restart: unless-stopped

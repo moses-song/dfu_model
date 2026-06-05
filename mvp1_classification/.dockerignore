@@ -1,0 +1,17 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.mypy_cache
+**/node_modules
+**/*.ipynb
+logs
+ideation
+orchestration
+dinov3
+Mask2formers
+DINOv3-Mask2former
+.claude
