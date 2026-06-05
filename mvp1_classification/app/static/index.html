@@ -2,90 +2,128 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DFU Model Workbench</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>DFU 모바일 실험실</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">DFU Model Workbench</p>
-          <h1>DINOv3-based inference comparison</h1>
-          <p class="heroCopy">
-            Upload one DFU image, then run each model button separately to compare backbone, segmentation, and classification outputs.
-          </p>
-        </div>
-        <span id="apiStatus" class="status">Checking API</span>
+    <main class="appShell">
+      <header class="heroCard">
+        <h1>당뇨병발궤양 맞춤형 서비스 플랫폼</h1>
+        <span id="apiStatus" class="status">API 확인 중</span>
       </header>
 
-      <section class="workspace">
-        <aside class="panel">
-          <label class="uploadBox" for="fileInput">
-            <input id="fileInput" name="file" type="file" accept="image/*" capture="environment" required />
-            <span class="uploadIcon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" role="img">
-                <path d="M4 7a2 2 0 0 1 2-2h2l1.4-1.8A2 2 0 0 1 11 2.5h2a2 2 0 0 1 1.6.7L16 5h2a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" />
-                <circle cx="12" cy="12.5" r="3.5" />
-              </svg>
-            </span>
-            <span>
-              <strong id="fileLabel">Choose image</strong>
-              <small>Supports full-foot photos and wound close-ups.</small>
-            </span>
+      <section class="mobileFrame">
+        <section class="cameraCard">
+          <div class="sectionHead">
+            <div>
+              <h2>이미지 업로드</h2>
+            </div>
+            <span id="cameraStatus" class="cameraStatus">카메라 대기</span>
+          </div>
+
+          <label class="previewCard" id="previewDropzone" for="fileInput">
+            <div id="previewViewport" class="previewViewport">
+              <video id="cameraVideo" class="cameraVideo isHidden" autoplay playsinline muted></video>
+              <img id="previewImage" alt="선택한 이미지 미리보기" />
+            </div>
+            <div id="emptyPreview" class="previewPlaceholder">
+              <strong>클릭하거나 파일을 끌어놓아 업로드</strong>
+            </div>
+            <div id="liveOverlay" class="liveOverlay isHidden">
+              <span class="liveDot"></span>
+              <strong>실시간 입력</strong>
+            </div>
           </label>
 
-          <div class="previewFrame">
-            <img id="previewImage" alt="Selected image preview" />
-            <span id="emptyPreview">Preview</span>
+          <div class="cameraActions">
+            <button id="startCameraButton" class="iconActionButton" type="button" aria-label="카메라 켜기">
+              <span class="actionIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                  <path d="M4 7a2 2 0 0 1 2-2h2l1.6-2h4.8L18 5h2a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" />
+                  <circle cx="12" cy="12.5" r="3.5" />
+                </svg>
+              </span>
+              <span><strong>촬영 시작</strong><small>카메라 연결</small></span>
+            </button>
+            <button id="captureButton" class="iconActionButton primaryAction" type="button" aria-label="현재 화면 캡처">
+              <span class="actionIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                  <rect x="4" y="4" width="16" height="16" rx="4" />
+                  <circle cx="12" cy="12" r="3.5" />
+                </svg>
+              </span>
+              <span><strong>화면 캡처</strong><small>현재 프레임 저장</small></span>
+            </button>
           </div>
 
-          <section class="modelLauncher">
-            <div class="sectionHeader">
-              <h2>Model Buttons</h2>
-              <p>Run each model independently.</p>
-            </div>
-            <div id="modelButtons" class="buttonStack"></div>
-          </section>
+          <input id="fileInput" name="file" type="file" accept="image/*" capture="environment" required />
 
-          <section class="pipelineBox">
-            <div class="sectionHeader">
-              <h2>Pipeline</h2>
-              <p>Legacy full pipeline endpoint remains available for end-to-end checks.</p>
+          <div class="captureMeta">
+            <div class="metaPill">
+              <span>권장</span>
+              <strong>밝은 조명, 수직 촬영</strong>
             </div>
-            <form id="analyzeForm">
-              <div class="fieldGrid">
-                <label>
-                  <span>Glucose</span>
-                  <input name="glucose" inputmode="decimal" placeholder="mg/dL" />
-                </label>
-                <label>
-                  <span>HbA1c</span>
-                  <input name="hba1c" inputmode="decimal" placeholder="%" />
-                </label>
+            <div class="metaPill">
+              <span>파일</span>
+              <strong id="imageState">아직 선택되지 않음</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="introCard">
+          <h2>안내</h2>
+          <p id="screenMessage" class="introCopy">
+            아래에서 원하는 task를 선택하면 단계별 모델 비교와 결과 확인을 진행할 수 있습니다.
+          </p>
+        </section>
+
+        <section id="taskHome" class="taskHome" aria-label="Task 목록"></section>
+
+        <section id="taskDetail" class="taskDetail isHidden" aria-live="polite">
+          <div class="detailHeader">
+            <button id="backButton" class="backButton" type="button">← Task 목록</button>
+            <div class="detailCopy">
+              <p id="detailEyebrow" class="sectionEyebrow"></p>
+              <h2 id="detailTitle"></h2>
+              <p id="detailDescription"></p>
+            </div>
+          </div>
+
+          <div id="detailAlert" class="alertBox"></div>
+
+          <div class="detailPanels">
+            <aside class="detailSidebar">
+              <section class="panelCard">
+                <div class="sectionHead">
+                  <div>
+                    <p class="sectionEyebrow">모델</p>
+                    <h3>이 task에서 실행 가능한 모델</h3>
+                  </div>
+                </div>
+                <div id="taskModelList" class="modelList"></div>
+              </section>
+
+              <section class="panelCard">
+                <div class="sectionHead">
+                  <div>
+                    <p class="sectionEyebrow">상태</p>
+                    <h3>현재 task 안내</h3>
+                  </div>
+                </div>
+                <div id="taskGuide" class="guideBox"></div>
+              </section>
+            </aside>
+
+            <section class="detailContent">
+              <div class="summaryCard">
+                <h3>실행 요약</h3>
+                <p id="nextAction">이미지를 업로드한 뒤 task를 선택하세요.</p>
               </div>
-              <label class="memoField">
-                <span>Memo</span>
-                <textarea name="memo" rows="3" placeholder="Clinical notes, capture condition, or remarks"></textarea>
-              </label>
-              <button id="submitButton" class="secondaryButton" type="submit">Run full pipeline</button>
-            </form>
-          </section>
-        </aside>
 
-        <section class="results" aria-live="polite">
-          <div class="summary">
-            <h2>Run Summary</h2>
-            <p id="nextAction">Select an image and press one of the model buttons.</p>
+              <div id="comparisonResults" class="resultsBoard"></div>
+            </section>
           </div>
-
-          <div class="summary">
-            <h2>Legacy Pipeline Result</h2>
-            <p id="pipelineSummary">Not executed yet.</p>
-            <p id="disclaimer" class="disclaimer"></p>
-          </div>
-
-          <div id="comparisonResults" class="comparisonGrid"></div>
         </section>
       </section>
     </main>
