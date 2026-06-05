@@ -127,7 +127,8 @@ flowchart TD
 ```
 
 ### 애플리케이션 아키텍처
-```
+
+```mermaid
 flowchart TD
   subgraph Client["Client Layer"]
     C1["Web Browser\n현재 MVP"]
