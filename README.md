@@ -127,75 +127,51 @@ flowchart TD
 ```
 
 ### 애플리케이션 아키텍처
-
-```mermaid
-flowchart LR
-  %% =========================
-  %% Client
-  %% =========================
+```
+flowchart TD
   subgraph Client["Client Layer"]
-    C1["Web Browser<br/>현재 MVP"]
-    C2["Mobile App<br/>향후 확장"]
-    C3["Static UI<br/>index.html / app.js / styles.css"]
+    C1["Web Browser\n현재 MVP"]
+    C2["Mobile App\n향후 확장"]
+    C3["Static UI\nindex.html / app.js / styles.css"]
   end
 
-  %% =========================
-  %% Web Server
-  %% =========================
-  subgraph WebServer["Web Server / Application Server<br/>FastAPI + Uvicorn"]
-    W1["Static File Serving<br/>GET /"]
-    W2["API Router<br/>/health<br/>/api/models<br/>/api/models/{model_id}/run<br/>/api/analyze"]
-    W3["Request Validation<br/>image upload / schema validation"]
-    
-    subgraph ServiceLayer["Service Layer"]
-      S1["One-button Pipeline<br/>pipeline.py"]
-      S2["Task Test Runner<br/>model_runner.py"]
-      S3["Model Catalog<br/>model_catalog.py"]
-    end
-
-    subgraph ModelLayer["Model / Inference Layer<br/>현재 Web Server 내부에서 실행"]
-      M1["Classifier Adapter<br/>classifier.py"]
-      M2["Segmentation Adapter<br/>segmentation.py"]
-      M3["DINOv3 Feature / PCA<br/>dinov3_loader.py / pca_focus.py"]
-      M4["Runtime Feature Cache<br/>feature_store.py"]
-    end
-
-    subgraph Assets["Local Model Assets"]
-      A1["parameters/*.pth / *.pt"]
-      A2["Config files<br/>settings.py / env vars"]
-    end
+  subgraph WebServer["Web Server / Application Server\nFastAPI + Uvicorn"]
+    W1["Static File Serving\nGET /"]
+    W2["API Router\n/health\n/api/models\n/api/analyze"]
+    W3["Request Validation\nimage upload / schema validation"]
   end
 
-  %% =========================
-  %% DB / Storage
-  %% =========================
-  subgraph DBServer["DB / Storage Server<br/>현재 미구현, 향후 확장"]
+  subgraph ServiceLayer["Service Layer"]
+    S1["One-button Pipeline\npipeline.py"]
+    S2["Task Test Runner\nmodel_runner.py"]
+    S3["Model Catalog\nmodel_catalog.py"]
+  end
+
+  subgraph ModelLayer["Model / Inference Layer\n현재 Web Server 내부 실행"]
+    M1["Classifier Adapter\nclassifier.py"]
+    M2["Segmentation Adapter\nsegmentation.py"]
+    M3["DINOv3 Feature / PCA\ndinov3_loader.py / pca_focus.py"]
+    M4["Runtime Feature Cache\nfeature_store.py"]
+  end
+
+  subgraph Assets["Local Model Assets"]
+    A1["parameters/*.pth / *.pt"]
+    A2["settings.py / env vars"]
+  end
+
+  subgraph DBServer["DB / Storage Server\n현재 미구현, 향후 확장"]
     D1["User Account DB"]
     D2["Image Metadata DB"]
     D3["Analysis Result DB"]
-    D4["Object Storage<br/>original / overlay / mask"]
-    D5["Vector DB<br/>RAG 확장 시"]
+    D4["Object Storage\noriginal / overlay / mask"]
+    D5["Vector DB\nRAG 확장 시"]
   end
 
-  %% =========================
-  %% Offline Training
-  %% =========================
-  subgraph Training["Offline Training / Reference Code"]
-    T1["Model_training/"]
-    T2["dinov3/"]
-    T3["Mask2formers/"]
-    T4["DINOv3-Mask2Former/"]
-  end
-
-  %% =========================
-  %% Main Communication
-  %% =========================
-  C1 -->|"GET /"| W1
-  C1 -->|"API Request"| W2
-  C2 -.->|"향후 API Request"| W2
+  C1 --> W1
+  C1 --> W2
+  C2 -.-> W2
   W1 --> C3
-  C3 -->|"POST /api/analyze"| W2
-  C3 -->|"POST /api/models/{model_id}/run"| W2
+  C3 --> W2
 
   W2 --> W3
   W3 --> S1
@@ -220,25 +196,14 @@ flowchart LR
   A2 --> M2
   A2 --> M3
 
-  W2 -.->|"향후 저장 / 조회"| DBServer
-  DBServer -.-> D1
-  DBServer -.-> D2
-  DBServer -.-> D3
-  DBServer -.-> D4
-  DBServer -.-> D5
+  W2 -.-> DBServer
 
-  Training -.->|"학습 산출물 export"| A1
-
-  %% =========================
-  %% Styles
-  %% =========================
   classDef client fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
   classDef web fill:#ede7f6,stroke:#4527a0,stroke-width:2px
   classDef service fill:#fff8e1,stroke:#f9a825,stroke-width:2px
   classDef model fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
   classDef asset fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
   classDef db fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5
-  classDef train fill:#eeeeee,stroke:#424242,stroke-width:2px,stroke-dasharray: 5 5
 
   class C1,C2,C3 client
   class W1,W2,W3 web
@@ -246,9 +211,7 @@ flowchart LR
   class M1,M2,M3,M4 model
   class A1,A2 asset
   class D1,D2,D3,D4,D5 db
-  class T1,T2,T3,T4 train
 ```
-
 
 ### 아키텍처 구성 설명
 
